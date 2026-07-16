@@ -1,0 +1,204 @@
+:root {
+  color-scheme: light;
+  font-family:
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  background: #f5f7fb;
+  color: #1f1f1f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background: radial-gradient(circle at top left, #eef5ff, #f5f7fb 40%);
+}
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 24px;
+  background: rgba(255, 255, 255, 0.9);
+  border-bottom: 1px solid #e8edf5;
+  backdrop-filter: blur(8px);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.brand-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: white;
+  background: linear-gradient(135deg, #1677ff, #722ed1);
+  font-size: 12px;
+}
+
+.app-content {
+  padding: 20px 24px 32px;
+}
+
+.page-card {
+  background: white;
+  border: 1px solid #e8edf5;
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.04);
+}
+
+.tools-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+  min-height: calc(100vh - 140px);
+}
+
+.tools-sidebar,
+.tools-main {
+  background: white;
+  border: 1px solid #e8edf5;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.tools-sidebar {
+  display: flex;
+  flex-direction: column;
+}
+
+.tools-sidebar-header {
+  padding: 12px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.tools-list {
+  overflow: auto;
+  flex: 1;
+}
+
+.tool-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid #f7f7f7;
+}
+
+.tool-item:hover,
+.tool-item.active {
+  background: #f0f7ff;
+}
+
+.tool-item .name {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.tool-item .desc {
+  color: #64748b;
+  font-size: 12px;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tools-main-body {
+  padding: 16px;
+}
+
+.timing-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #eef2f7;
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.timing-bar .item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.timing-bar .label {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.timing-bar .value {
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.content-block {
+  border: 1px solid #eef2f7;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: #fff;
+}
+
+.content-block .meta {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.markdown-body {
+  line-height: 1.65;
+}
+
+.markdown-body pre {
+  background: #0b1220;
+  color: #e2e8f0;
+  padding: 12px;
+  border-radius: 8px;
+  overflow: auto;
+}
+
+.json-editor {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.conn-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.muted {
+  color: #64748b;
+}
+
+@media (max-width: 960px) {
+  .tools-layout {
+    grid-template-columns: 1fr;
+  }
+}

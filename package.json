@@ -1,0 +1,21 @@
+{
+  "name": "mcp-tool-debug",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build:shared": "npm run build --workspace=packages/shared",
+    "build:server": "npm run build:shared && npm run build --workspace=apps/server",
+    "build:web": "npm run build --workspace=apps/web",
+    "dev": "npm run dev:server & npm run dev:web",
+    "dev:server": "npm run build:shared && npm run dev --workspace=apps/server",
+    "dev:web": "npm run dev --workspace=apps/web",
+    "start": "npm run start --workspace=apps/server"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
