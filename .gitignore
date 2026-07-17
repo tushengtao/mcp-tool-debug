@@ -9,3 +9,4 @@ data
 *.log
 .vite
 coverage
+.npm-cache

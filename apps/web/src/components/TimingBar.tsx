@@ -1,4 +1,5 @@
 import { Tag } from "antd";
+import dayjs from "dayjs";
 import type { RunStatus } from "@mcp-debug/shared";
 
 const statusColor: Record<RunStatus, string> = {
@@ -8,6 +9,11 @@ const statusColor: Record<RunStatus, string> = {
   timeout: "orange",
   cancelled: "default",
 };
+
+function formatTime(iso?: string | null): string {
+  if (!iso) return "-";
+  return dayjs(iso).format("YYYY-MM-DD HH:mm:ss.SSS");
+}
 
 export function TimingBar(props: {
   startedAt?: string;
@@ -21,11 +27,11 @@ export function TimingBar(props: {
     <div className="timing-bar">
       <div className="item">
         <span className="label">发起时间</span>
-        <span className="value">{props.startedAt}</span>
+        <span className="value">{formatTime(props.startedAt)}</span>
       </div>
       <div className="item">
         <span className="label">结束时间</span>
-        <span className="value">{props.endedAt ?? "-"}</span>
+        <span className="value">{formatTime(props.endedAt)}</span>
       </div>
       <div className="item">
         <span className="label">耗时</span>
