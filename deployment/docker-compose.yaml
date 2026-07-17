@@ -1,0 +1,38 @@
+name: mcp-tool-debug
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+      target: api
+    image: mcp-tool-debug-api:local
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 8787
+      DATABASE_URL: ${DATABASE_URL:-file:./data/mcp-debug.db}
+      DB_DIALECT: ${DB_DIALECT:-sqlite}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+    ports:
+      - "${API_PORT:-8787}:8787"
+    volumes:
+      - mcp-debug-data:/app/apps/server/data
+
+  web:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+      target: web
+    image: mcp-tool-debug-web:local
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-5173}:80"
+
+volumes:
+  mcp-debug-data:
+    name: mcp-tool-debug-data
+

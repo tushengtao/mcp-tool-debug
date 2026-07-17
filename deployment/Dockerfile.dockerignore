@@ -1,0 +1,13 @@
+.git
+.gitignore
+.npm-cache
+.trae
+.vscode
+node_modules
+**/node_modules
+**/dist
+data
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
