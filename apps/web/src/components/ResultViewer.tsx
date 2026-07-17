@@ -36,27 +36,74 @@ function extractErrorMessage(result: Partial<InvokeResponse>): string | null {
   return null;
 }
 
+function MarkdownView({ text }: { text: string }) {
+  return (
+    <div className="markdown-body">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ href, children, ...props }) => (
+            <a href={href} target="_blank" rel="noreferrer" {...props}>
+              {children}
+            </a>
+          ),
+          pre: ({ children, ...props }) => (
+            <pre className="md-pre" {...props}>
+              {children}
+            </pre>
+          ),
+          code: ({ className, children, ...props }) => {
+            const isBlock = typeof className === "string" && className.includes("language-");
+            if (isBlock) {
+              return (
+                <code className={className} {...props}>
+                  {children}
+                </code>
+              );
+            }
+            return (
+              <code className="md-inline-code" {...props}>
+                {children}
+              </code>
+            );
+          },
+          table: ({ children, ...props }) => (
+            <div className="md-table-wrap">
+              <table {...props}>{children}</table>
+            </div>
+          ),
+        }}
+      >
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 function ContentBlocks({ content }: { content: ContentItem[] }) {
   if (!content?.length) return <Empty description="无非结构化 content" />;
   return (
-    <>
+    <div className="content-blocks">
       {content.map((item, idx) => {
         if (item.type === "text") {
+          const text = item.text ?? "";
           return (
             <div className="content-block" key={idx}>
-              <div className="meta">text</div>
-              <div className="markdown-body">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {item.text ?? ""}
-                </ReactMarkdown>
+              <div className="meta">
+                <Tag color="blue">Markdown</Tag>
+                {item.mimeType ? <span className="muted">{item.mimeType}</span> : null}
               </div>
+              <MarkdownView text={text} />
             </div>
           );
         }
         if (item.type === "image" && item.data) {
           return (
             <div className="content-block" key={idx}>
-              <div className="meta">image · {item.mimeType}</div>
+              <div className="meta">
+                <Tag>image</Tag>
+                <span className="muted">{item.mimeType}</span>
+              </div>
               <img
                 alt="tool-image"
                 style={{ maxWidth: "100%", borderRadius: 8 }}
@@ -68,7 +115,10 @@ function ContentBlocks({ content }: { content: ContentItem[] }) {
         if (item.type === "audio" && item.data) {
           return (
             <div className="content-block" key={idx}>
-              <div className="meta">audio · {item.mimeType}</div>
+              <div className="meta">
+                <Tag>audio</Tag>
+                <span className="muted">{item.mimeType}</span>
+              </div>
               <audio
                 controls
                 src={`data:${item.mimeType || "audio/wav"};base64,${item.data}`}
@@ -79,25 +129,58 @@ function ContentBlocks({ content }: { content: ContentItem[] }) {
         if (item.type === "resource_link") {
           return (
             <div className="content-block" key={idx}>
-              <div className="meta">resource_link</div>
+              <div className="meta">
+                <Tag>resource_link</Tag>
+              </div>
               <div>
                 <strong>{item.name ?? item.uri}</strong>
-                <div className="muted">{item.uri}</div>
-                <div>{item.description}</div>
+                <div className="muted breakable-text">{item.uri}</div>
+                {item.description ? (
+                  <MarkdownView text={String(item.description)} />
+                ) : null}
               </div>
+            </div>
+          );
+        }
+        if (item.type === "resource" && item.resource) {
+          const res = item.resource as Record<string, unknown>;
+          const text =
+            typeof res.text === "string"
+              ? res.text
+              : typeof res.blob === "string"
+                ? res.blob
+                : JSON.stringify(res, null, 2);
+          const mime = typeof res.mimeType === "string" ? res.mimeType : "";
+          const isMarkdown =
+            mime.includes("markdown") ||
+            mime.includes("text/") ||
+            !mime;
+          return (
+            <div className="content-block" key={idx}>
+              <div className="meta">
+                <Tag color="purple">resource</Tag>
+                <span className="muted breakable-text">
+                  {String(res.uri ?? "")} {mime ? `· ${mime}` : ""}
+                </span>
+              </div>
+              {isMarkdown ? (
+                <MarkdownView text={text} />
+              ) : (
+                <pre className="breakable-pre">{text}</pre>
+              )}
             </div>
           );
         }
         return (
           <div className="content-block" key={idx}>
-            <div className="meta">{item.type || "unknown"}</div>
-            <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-              {JSON.stringify(item, null, 2)}
-            </pre>
+            <div className="meta">
+              <Tag>{item.type || "unknown"}</Tag>
+            </div>
+            <pre className="breakable-pre">{JSON.stringify(item, null, 2)}</pre>
           </div>
         );
       })}
-    </>
+    </div>
   );
 }
 
@@ -258,7 +341,14 @@ export function ResultViewer({
           {
             key: "content",
             label: "非结构化 Content",
-            children: <ContentBlocks content={result.content ?? []} />,
+            children: (
+              <div>
+                <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 12 }}>
+                  text 内容使用 react-markdown + remark-gfm 渲染
+                </Typography.Paragraph>
+                <ContentBlocks content={result.content ?? []} />
+              </div>
+            ),
           },
           {
             key: "assert",

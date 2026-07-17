@@ -27,6 +27,7 @@ function enhanceSchema(schema: Record<string, unknown>): Record<string, unknown>
     items.map((item, idx) => {
       if (!item || typeof item !== "object") return item;
       const obj = enhanceSchema(item as Record<string, unknown>);
+      // RJSF uses title as option label for oneOf/anyOf. Set it from description or const type.
       if (!obj.title) {
         const desc = typeof obj.description === "string" ? obj.description : "";
         const constType =
@@ -35,9 +36,7 @@ function enhanceSchema(schema: Record<string, unknown>): Record<string, unknown>
           (obj.properties as any).type &&
           typeof (obj.properties as any).type === "object" &&
           (obj.properties as any).type.const;
-        obj.title =
-          desc ||
-          (constType ? String(constType) : `选项 ${idx + 1}`);
+        obj.title = desc || (constType ? String(constType) : `选项 ${idx + 1}`);
       }
       return obj;
     });
@@ -70,9 +69,10 @@ function buildUiSchema(schema: Record<string, unknown>): UiSchema {
   for (const [key, prop] of Object.entries(props)) {
     if (!prop || typeof prop !== "object") continue;
     const field: UiSchema = {};
-    if (prop.description) field["ui:description"] = prop.description;
     if (prop.oneOf || prop.anyOf) {
       field["ui:options"] = { label: true };
+      // Hide the field-level title for oneOf/anyOf to avoid duplicate with option labels
+      field["ui:title"] = " ";
     }
     if (prop.type === "string" && prop.enum) {
       field["ui:widget"] = "select";
@@ -80,6 +80,48 @@ function buildUiSchema(schema: Record<string, unknown>): UiSchema {
     ui[key] = field;
   }
   return ui;
+}
+
+/** Translate common Ajv error messages to concise Chinese */
+function transformErrors(errors: any[]): any[] {
+  return errors.map((err) => {
+    const msg = String(err.message ?? "");
+    const name = err.name;
+    const params = err.params ?? {};
+    let friendly = msg;
+
+    if (name === "required") {
+      friendly = `缺少必填字段：${params.missingProperty ?? ""}`;
+    } else if (name === "additionalProperties") {
+      friendly = `不允许额外字段：${params.additionalProperty ?? ""}`;
+    } else if (name === "const") {
+      friendly = `值必须为常量：${params.allowedValue ?? ""}`;
+    } else if (name === "enum") {
+      friendly = `值不在允许范围内`;
+    } else if (name === "oneOf") {
+      friendly = `需匹配且仅匹配一个选项`;
+    } else if (name === "anyOf") {
+      friendly = `需匹配至少一个选项`;
+    } else if (name === "type") {
+      friendly = `类型应为 ${params.type ?? ""}`;
+    } else if (name === "minimum") {
+      friendly = `不能小于 ${params.limit ?? ""}`;
+    } else if (name === "maximum") {
+      friendly = `不能大于 ${params.limit ?? ""}`;
+    } else if (name === "minLength") {
+      friendly = `长度不能少于 ${params.limit ?? ""}`;
+    } else if (name === "maxLength") {
+      friendly = `长度不能超过 ${params.limit ?? ""}`;
+    } else if (name === "pattern") {
+      friendly = `格式不正确`;
+    }
+
+    return {
+      ...err,
+      message: friendly,
+      stack: friendly,
+    };
+  });
 }
 
 export function SchemaForm({ schema, formData, onChange, onSubmit, loading }: Props) {
@@ -168,8 +210,9 @@ export function SchemaForm({ schema, formData, onChange, onSubmit, loading }: Pr
             uiSchema={uiSchema}
             formData={formData}
             validator={validator}
-            liveValidate
-            showErrorList="top"
+            transformErrors={transformErrors}
+            showErrorList={false}
+            noHtml5Validate
             experimental_defaultFormStateBehavior={{
               allOf: "populateDefaults",
               arrayMinItems: { populate: "all" },
