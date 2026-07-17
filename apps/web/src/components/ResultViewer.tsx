@@ -1,4 +1,5 @@
-import { Alert, Empty, Tabs, Tag } from "antd";
+import { useMemo } from "react";
+import { Alert, Empty, Tabs, Tag, Typography } from "antd";
 import CodeMirror from "@uiw/react-codemirror";
 import { json } from "@codemirror/lang-json";
 import ReactMarkdown from "react-markdown";
@@ -10,6 +11,30 @@ import type {
   SchemaValidationResult,
 } from "@mcp-debug/shared";
 import { TimingBar } from "./TimingBar";
+
+function contentText(content: ContentItem[] = []): string {
+  return content
+    .filter((c) => c.type === "text" && typeof c.text === "string")
+    .map((c) => c.text as string)
+    .join("\n");
+}
+
+function extractErrorMessage(result: Partial<InvokeResponse>): string | null {
+  if (result.protocolError) {
+    const m = (result.protocolError as any).message;
+    return typeof m === "string" ? m : JSON.stringify(result.protocolError);
+  }
+  const sc = result.structuredContent as any;
+  if (sc && typeof sc === "object") {
+    if (typeof sc.error === "string") return sc.error;
+    if (typeof sc.message === "string") return sc.message;
+    if (sc.raw_response?.msg) return String(sc.raw_response.msg);
+    if (sc.msg) return String(sc.msg);
+  }
+  const text = contentText(result.content ?? []);
+  if (text && (result.isError || result.status === "tool_error")) return text;
+  return null;
+}
 
 function ContentBlocks({ content }: { content: ContentItem[] }) {
   if (!content?.length) return <Empty description="无非结构化 content" />;
@@ -104,12 +129,37 @@ function AssertPanel({ result }: { result?: AssertResult | null }) {
   );
 }
 
+function JsonPane({ value, height = "360px" }: { value: unknown; height?: string }) {
+  return (
+    <div className="json-editor">
+      <CodeMirror
+        value={JSON.stringify(value, null, 2)}
+        height={height}
+        extensions={[json()]}
+        editable={false}
+      />
+    </div>
+  );
+}
+
 export function ResultViewer({
   result,
 }: {
   result?: Partial<InvokeResponse> | null;
 }) {
+  const errMsg = useMemo(
+    () => (result ? extractErrorMessage(result) : null),
+    [result],
+  );
+
   if (!result) return <Empty description="调用后在此查看结果" />;
+
+  const isToolError = result.isError || result.status === "tool_error";
+  const isProtocolError =
+    result.status === "protocol_error" || result.status === "timeout" || !!result.protocolError;
+  const schemaFailed = result.schemaValidation && !result.schemaValidation.ok;
+  const defaultTab =
+    result.structuredContent !== undefined ? "structured" : "content";
 
   return (
     <div>
@@ -120,23 +170,72 @@ export function ResultViewer({
         status={result.status}
         isError={result.isError}
       />
-      <div style={{ marginBottom: 12 }}>
+      <div style={{ marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
         <SchemaBadge validation={result.schemaValidation} />
+        {isToolError ? <Tag color="error">工具执行错误 (isError)</Tag> : null}
+        {isProtocolError ? <Tag color="error">协议/连接错误</Tag> : null}
       </div>
-      {result.protocolError ? (
+
+      {isProtocolError && errMsg ? (
         <Alert
           type="error"
           showIcon
           style={{ marginBottom: 12 }}
           message="协议/连接错误"
           description={
-            <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-              {JSON.stringify(result.protocolError, null, 2)}
-            </pre>
+            <div>
+              <Typography.Paragraph style={{ marginBottom: 8 }} copyable>
+                {errMsg}
+              </Typography.Paragraph>
+              {result.protocolError ? (
+                <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>
+                  {JSON.stringify(result.protocolError, null, 2)}
+                </pre>
+              ) : null}
+            </div>
           }
         />
       ) : null}
+
+      {isToolError && errMsg ? (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="工具返回错误"
+          description={
+            <Typography.Paragraph style={{ marginBottom: 0 }} copyable>
+              {errMsg}
+            </Typography.Paragraph>
+          }
+        />
+      ) : null}
+
+      {schemaFailed ? (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="outputSchema 校验未通过"
+          description={
+            <div>
+              <div style={{ marginBottom: 6 }}>
+                返回的 structuredContent 与工具声明的 outputSchema 不一致（可能是服务端实现问题）。
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {(result.schemaValidation?.errors ?? []).slice(0, 8).map((e, i) => (
+                  <li key={i}>
+                    <code>{e.path || "/"}</code> {e.message}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          }
+        />
+      ) : null}
+
       <Tabs
+        defaultActiveKey={defaultTab}
         items={[
           {
             key: "structured",
@@ -145,14 +244,7 @@ export function ResultViewer({
               result.structuredContent === undefined ? (
                 <Empty description="无 structuredContent" />
               ) : (
-                <div className="json-editor">
-                  <CodeMirror
-                    value={JSON.stringify(result.structuredContent, null, 2)}
-                    height="360px"
-                    extensions={[json()]}
-                    editable={false}
-                  />
-                </div>
+                <JsonPane value={result.structuredContent} />
               ),
           },
           {
@@ -169,16 +261,27 @@ export function ResultViewer({
             key: "schema",
             label: "Schema 校验",
             children: result.schemaValidation ? (
-              <div className="json-editor">
-                <CodeMirror
-                  value={JSON.stringify(result.schemaValidation, null, 2)}
-                  height="280px"
-                  extensions={[json()]}
-                  editable={false}
-                />
-              </div>
+              <JsonPane value={result.schemaValidation} height="280px" />
             ) : (
               <Empty description="无校验信息" />
+            ),
+          },
+          {
+            key: "raw",
+            label: "原始摘要",
+            children: (
+              <JsonPane
+                value={{
+                  status: result.status,
+                  isError: result.isError,
+                  durationMs: result.durationMs,
+                  protocolError: result.protocolError ?? null,
+                  content: result.content ?? [],
+                  structuredContent: result.structuredContent ?? null,
+                  schemaValidation: result.schemaValidation ?? null,
+                }}
+                height="400px"
+              />
             ),
           },
         ]}

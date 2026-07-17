@@ -102,7 +102,15 @@ export function WorkbenchPage() {
       const res = await api.invoke(id, toolName, { arguments: formData, save: true });
       setResult(res);
       reloadRuns(toolName);
-      message.success(`完成 · ${res.durationMs} ms`);
+      if (res.status === "success" && !res.isError) {
+        message.success(`成功 · ${res.durationMs} ms`);
+      } else if (res.status === "tool_error" || res.isError) {
+        message.warning(`工具错误 · ${res.durationMs} ms`);
+      } else if (res.status === "timeout") {
+        message.error(`超时 · ${res.durationMs} ms`);
+      } else {
+        message.error(`失败(${res.status}) · ${res.durationMs} ms`);
+      }
     } catch (e) {
       message.error(e instanceof Error ? e.message : String(e));
     } finally {

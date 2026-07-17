@@ -197,6 +197,36 @@ body {
   color: #64748b;
 }
 
+.schema-form-wrap .form-group {
+  margin-bottom: 12px;
+}
+
+.schema-form-wrap fieldset {
+  border: 1px solid #eef2f7;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.schema-form-wrap legend {
+  font-weight: 600;
+  padding: 0 6px;
+  width: auto;
+}
+
+.schema-form-wrap .panel.panel-danger.errors {
+  background: #fff2f0;
+  border: 1px solid #ffccc7;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+.schema-form-wrap .text-danger {
+  color: #cf1322;
+  font-size: 12px;
+}
+
 @media (max-width: 960px) {
   .tools-layout {
     grid-template-columns: 1fr;
