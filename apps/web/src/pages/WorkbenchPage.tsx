@@ -31,6 +31,7 @@ import { api } from "../api/client";
 import { SchemaForm } from "../components/SchemaForm";
 import { ResultViewer } from "../components/ResultViewer";
 import { CaseEditor, caseToForm, type CaseFormValue } from "../components/CaseEditor";
+import { ResizablePanels } from "../components/ResizablePanels";
 import CodeMirror from "@uiw/react-codemirror";
 import { json } from "@codemirror/lang-json";
 import dayjs from "dayjs";
@@ -50,6 +51,7 @@ export function WorkbenchPage() {
   const [editingCase, setEditingCase] = useState<TestCase | null>(null);
   const [caseForm, setCaseForm] = useState<CaseFormValue>(caseToForm());
   const [suiteLoading, setSuiteLoading] = useState(false);
+  const [mainTab, setMainTab] = useState("invoke");
 
   const selected = useMemo(
     () => tools.find((t) => t.name === toolName) ?? null,
@@ -91,6 +93,7 @@ export function WorkbenchPage() {
   useEffect(() => {
     setFormData({});
     setResult(null);
+    setMainTab("invoke");
     reloadCases(toolName);
     reloadRuns(toolName);
   }, [toolName, id]);
@@ -159,10 +162,294 @@ export function WorkbenchPage() {
     }
   };
 
+  const leftPanel = (
+    <>
+      <div className="tools-sidebar-header">
+        <Input.Search
+          placeholder="搜索 Tools"
+          allowClear
+          onSearch={async (value) => {
+            setQ(value);
+            await reloadTools(value);
+          }}
+        />
+      </div>
+      <div className="tools-list">
+        {tools.map((t) => (
+          <div
+            key={t.id}
+            className={`tool-item ${t.name === toolName ? "active" : ""}`}
+            onClick={() => setToolName(t.name)}
+            title={t.description || t.name}
+          >
+            <div className="name">{t.title || t.name}</div>
+            <div className="desc">{t.description || t.name}</div>
+          </div>
+        ))}
+        {!tools.length ? <Empty style={{ marginTop: 40 }} description="暂无 Tools" /> : null}
+      </div>
+    </>
+  );
+
+  const centerPanel = !selected ? (
+    <div className="panel-scroll">
+      <Empty description="请选择左侧 Tool" />
+    </div>
+  ) : (
+    <>
+      <div className="workbench-center-header">
+        <div className="title" title={selected.title || selected.name}>
+          {selected.title || selected.name}
+        </div>
+        <p className="desc" title={selected.description || ""}>
+          {selected.description || "无描述"}
+        </p>
+      </div>
+      <div className="panel-scroll">
+        <Tabs
+          activeKey={mainTab}
+          onChange={setMainTab}
+          items={[
+            {
+              key: "invoke",
+              label: "调用",
+              children: (
+                <div>
+                  <div style={{ marginBottom: 8 }}>
+                    <Button
+                      icon={<SaveOutlined />}
+                      onClick={openCreateCase}
+                      style={{ marginRight: 8 }}
+                    >
+                      另存为用例
+                    </Button>
+                  </div>
+                  <SchemaForm
+                    schema={selected.inputSchema}
+                    formData={formData}
+                    onChange={setFormData}
+                    onSubmit={invoke}
+                    loading={invoking}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: "cases",
+              label: `用例 (${cases.length})`,
+              children: (
+                <>
+                  <div style={{ marginBottom: 12 }}>
+                    <Button type="primary" icon={<PlusOutlined />} onClick={openCreateCase}>
+                      新建用例
+                    </Button>
+                  </div>
+                  <Table
+                    rowKey="id"
+                    dataSource={cases}
+                    pagination={false}
+                    scroll={{ x: true }}
+                    columns={[
+                      { title: "名称", dataIndex: "name", ellipsis: true },
+                      {
+                        title: "Tags",
+                        dataIndex: "tags",
+                        render: (tags: string[]) =>
+                          tags?.map((t) => <Tag key={t}>{t}</Tag>),
+                      },
+                      {
+                        title: "启用",
+                        dataIndex: "enabled",
+                        width: 70,
+                        render: (v) => (v ? "是" : "否"),
+                      },
+                      {
+                        title: "操作",
+                        width: 260,
+                        render: (_, row) => (
+                          <Space wrap>
+                            <Button
+                              size="small"
+                              icon={<PlayCircleOutlined />}
+                              onClick={async () => {
+                                try {
+                                  const res = await api.runCase(row.id);
+                                  setResult(res);
+                                  setFormData(row.arguments);
+                                  message.success(
+                                    res.assertResult
+                                      ? res.assertResult.passed
+                                        ? "断言通过"
+                                        : "断言失败"
+                                      : "执行完成",
+                                  );
+                                  reloadRuns(toolName);
+                                } catch (e) {
+                                  message.error(
+                                    e instanceof Error ? e.message : String(e),
+                                  );
+                                }
+                              }}
+                            >
+                              运行
+                            </Button>
+                            <Button size="small" onClick={() => openEditCase(row)}>
+                              编辑
+                            </Button>
+                            <Button
+                              size="small"
+                              onClick={() => {
+                                setFormData(row.arguments);
+                                setMainTab("invoke");
+                                message.info("参数已载入调用表单");
+                              }}
+                            >
+                              载入参数
+                            </Button>
+                            <Popconfirm
+                              title="删除该用例？"
+                              onConfirm={async () => {
+                                await api.deleteCase(row.id);
+                                reloadCases(toolName);
+                              }}
+                            >
+                              <Button size="small" danger>
+                                删除
+                              </Button>
+                            </Popconfirm>
+                          </Space>
+                        ),
+                      },
+                    ]}
+                  />
+                </>
+              ),
+            },
+            {
+              key: "history",
+              label: `历史 (${runs.length})`,
+              children: (
+                <Table
+                  rowKey="id"
+                  dataSource={runs}
+                  pagination={{ pageSize: 10 }}
+                  scroll={{ x: true }}
+                  columns={[
+                    {
+                      title: "发起时间",
+                      dataIndex: "startedAt",
+                      render: (v) => dayjs(v).format("YYYY-MM-DD HH:mm:ss"),
+                    },
+                    { title: "耗时(ms)", dataIndex: "durationMs", width: 100 },
+                    {
+                      title: "状态",
+                      dataIndex: "status",
+                      render: (s, row) => (
+                        <Tag color={row.isError ? "error" : "success"}>{s}</Tag>
+                      ),
+                    },
+                    { title: "来源", dataIndex: "source", width: 90 },
+                    {
+                      title: "操作",
+                      width: 220,
+                      render: (_, row) => (
+                        <Space wrap>
+                          <Button
+                            size="small"
+                            onClick={() => {
+                              setFormData(row.requestArguments);
+                              setResult({
+                                runId: row.id,
+                                startedAt: row.startedAt,
+                                endedAt: row.endedAt,
+                                durationMs: row.durationMs,
+                                status: row.status,
+                                isError: row.isError,
+                                content: row.resultContent,
+                                structuredContent: row.resultStructured,
+                                schemaValidation: row.schemaValidation,
+                                assertResult: row.assertResult,
+                                protocolError: row.protocolError,
+                              });
+                              message.info("已载入该次结果");
+                            }}
+                          >
+                            查看
+                          </Button>
+                          <Button
+                            size="small"
+                            onClick={() => {
+                              setFormData(row.requestArguments);
+                              setMainTab("invoke");
+                              message.info("参数已复制到表单");
+                            }}
+                          >
+                            重用参数
+                          </Button>
+                          <Popconfirm
+                            title="删除记录？"
+                            onConfirm={async () => {
+                              await api.deleteRun(row.id);
+                              reloadRuns(toolName);
+                            }}
+                          >
+                            <Button size="small" danger>
+                              删除
+                            </Button>
+                          </Popconfirm>
+                        </Space>
+                      ),
+                    },
+                  ]}
+                />
+              ),
+            },
+            {
+              key: "schema",
+              label: "Schema",
+              children: (
+                <div style={{ display: "grid", gap: 12, minWidth: 0 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <Typography.Text strong>inputSchema</Typography.Text>
+                    <div className="json-editor" style={{ marginTop: 8 }}>
+                      <CodeMirror
+                        value={JSON.stringify(selected.inputSchema, null, 2)}
+                        height="280px"
+                        extensions={[json()]}
+                        editable={false}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <Typography.Text strong>outputSchema</Typography.Text>
+                    <div className="json-editor" style={{ marginTop: 8 }}>
+                      <CodeMirror
+                        value={JSON.stringify(selected.outputSchema ?? null, null, 2)}
+                        height="220px"
+                        extensions={[json()]}
+                        editable={false}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ),
+            },
+          ]}
+        />
+      </div>
+    </>
+  );
+
+  const rightPanel = (
+    <div className="result-pane">
+      <ResultViewer result={result} />
+    </div>
+  );
+
   return (
     <div>
-      <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between" }}>
-        <Space>
+      <div style={{ marginBottom: 12, display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <Space wrap>
           <Link to="/connections">
             <Button icon={<ArrowLeftOutlined />}>连接列表</Button>
           </Link>
@@ -171,7 +458,7 @@ export function WorkbenchPage() {
           </Typography.Title>
           {conn?.live ? <Tag color="success">在线</Tag> : <Tag>离线</Tag>}
         </Space>
-        <Space>
+        <Space wrap>
           <Button
             icon={<CloudSyncOutlined />}
             onClick={async () => {
@@ -212,287 +499,31 @@ export function WorkbenchPage() {
         </Space>
       </div>
 
-      <div className="tools-layout">
-        <div className="tools-sidebar">
-          <div className="tools-sidebar-header">
-            <Input.Search
-              placeholder="搜索 Tools"
-              allowClear
-              onSearch={async (value) => {
-                setQ(value);
-                await reloadTools(value);
-              }}
-            />
-          </div>
-          <div className="tools-list">
-            {tools.map((t) => (
-              <div
-                key={t.id}
-                className={`tool-item ${t.name === toolName ? "active" : ""}`}
-                onClick={() => setToolName(t.name)}
-              >
-                <div className="name">{t.title || t.name}</div>
-                <div className="desc">{t.description || t.name}</div>
-              </div>
-            ))}
-            {!tools.length ? <Empty style={{ marginTop: 40 }} description="暂无 Tools" /> : null}
-          </div>
-        </div>
-
-        <div className="tools-main">
-          <div className="tools-main-body">
-            {!selected ? (
-              <Empty description="请选择左侧 Tool" />
-            ) : (
-              <>
-                <Typography.Title level={4} style={{ marginTop: 0 }}>
-                  {selected.title || selected.name}
-                </Typography.Title>
-                <Typography.Paragraph type="secondary">
-                  {selected.description || "无描述"}
-                </Typography.Paragraph>
-
-                <Tabs
-                  items={[
-                    {
-                      key: "invoke",
-                      label: "调用",
-                      children: (
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "1fr 1fr",
-                            gap: 16,
-                          }}
-                        >
-                          <div>
-                            <div style={{ marginBottom: 8 }}>
-                              <Button
-                                icon={<SaveOutlined />}
-                                onClick={openCreateCase}
-                                style={{ marginRight: 8 }}
-                              >
-                                另存为用例
-                              </Button>
-                            </div>
-                            <SchemaForm
-                              schema={selected.inputSchema}
-                              formData={formData}
-                              onChange={setFormData}
-                              onSubmit={invoke}
-                              loading={invoking}
-                            />
-                          </div>
-                          <div>
-                            <ResultViewer result={result} />
-                          </div>
-                        </div>
-                      ),
-                    },
-                    {
-                      key: "cases",
-                      label: `用例 (${cases.length})`,
-                      children: (
-                        <>
-                          <div style={{ marginBottom: 12 }}>
-                            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateCase}>
-                              新建用例
-                            </Button>
-                          </div>
-                          <Table
-                            rowKey="id"
-                            dataSource={cases}
-                            pagination={false}
-                            columns={[
-                              { title: "名称", dataIndex: "name" },
-                              {
-                                title: "Tags",
-                                dataIndex: "tags",
-                                render: (tags: string[]) =>
-                                  tags?.map((t) => <Tag key={t}>{t}</Tag>),
-                              },
-                              {
-                                title: "启用",
-                                dataIndex: "enabled",
-                                render: (v) => (v ? "是" : "否"),
-                              },
-                              {
-                                title: "操作",
-                                render: (_, row) => (
-                                  <Space>
-                                    <Button
-                                      size="small"
-                                      icon={<PlayCircleOutlined />}
-                                      onClick={async () => {
-                                        try {
-                                          const res = await api.runCase(row.id);
-                                          setResult(res);
-                                          setFormData(row.arguments);
-                                          message.success(
-                                            res.assertResult
-                                              ? res.assertResult.passed
-                                                ? "断言通过"
-                                                : "断言失败"
-                                              : "执行完成",
-                                          );
-                                          reloadRuns(toolName);
-                                        } catch (e) {
-                                          message.error(
-                                            e instanceof Error ? e.message : String(e),
-                                          );
-                                        }
-                                      }}
-                                    >
-                                      运行
-                                    </Button>
-                                    <Button size="small" onClick={() => openEditCase(row)}>
-                                      编辑
-                                    </Button>
-                                    <Button
-                                      size="small"
-                                      onClick={() => {
-                                        setFormData(row.arguments);
-                                        message.info("参数已载入调用表单");
-                                      }}
-                                    >
-                                      载入参数
-                                    </Button>
-                                    <Popconfirm
-                                      title="删除该用例？"
-                                      onConfirm={async () => {
-                                        await api.deleteCase(row.id);
-                                        reloadCases(toolName);
-                                      }}
-                                    >
-                                      <Button size="small" danger>
-                                        删除
-                                      </Button>
-                                    </Popconfirm>
-                                  </Space>
-                                ),
-                              },
-                            ]}
-                          />
-                        </>
-                      ),
-                    },
-                    {
-                      key: "history",
-                      label: `历史 (${runs.length})`,
-                      children: (
-                        <Table
-                          rowKey="id"
-                          dataSource={runs}
-                          pagination={{ pageSize: 10 }}
-                          columns={[
-                            {
-                              title: "发起时间",
-                              dataIndex: "startedAt",
-                              render: (v) => dayjs(v).format("YYYY-MM-DD HH:mm:ss"),
-                            },
-                            { title: "耗时(ms)", dataIndex: "durationMs", width: 100 },
-                            {
-                              title: "状态",
-                              dataIndex: "status",
-                              render: (s, row) => (
-                                <Tag color={row.isError ? "error" : "success"}>{s}</Tag>
-                              ),
-                            },
-                            { title: "来源", dataIndex: "source", width: 90 },
-                            {
-                              title: "操作",
-                              render: (_, row) => (
-                                <Space>
-                                  <Button
-                                    size="small"
-                                    onClick={() => {
-                                      setFormData(row.requestArguments);
-                                      setResult({
-                                        runId: row.id,
-                                        startedAt: row.startedAt,
-                                        endedAt: row.endedAt,
-                                        durationMs: row.durationMs,
-                                        status: row.status,
-                                        isError: row.isError,
-                                        content: row.resultContent,
-                                        structuredContent: row.resultStructured,
-                                        schemaValidation: row.schemaValidation,
-                                        assertResult: row.assertResult,
-                                        protocolError: row.protocolError,
-                                      });
-                                      message.info("已载入该次结果");
-                                    }}
-                                  >
-                                    查看
-                                  </Button>
-                                  <Button
-                                    size="small"
-                                    onClick={() => {
-                                      setFormData(row.requestArguments);
-                                      message.info("参数已复制到表单");
-                                    }}
-                                  >
-                                    重用参数
-                                  </Button>
-                                  <Popconfirm
-                                    title="删除记录？"
-                                    onConfirm={async () => {
-                                      await api.deleteRun(row.id);
-                                      reloadRuns(toolName);
-                                    }}
-                                  >
-                                    <Button size="small" danger>
-                                      删除
-                                    </Button>
-                                  </Popconfirm>
-                                </Space>
-                              ),
-                            },
-                          ]}
-                        />
-                      ),
-                    },
-                    {
-                      key: "schema",
-                      label: "Schema",
-                      children: (
-                        <div style={{ display: "grid", gap: 12 }}>
-                          <div>
-                            <Typography.Text strong>inputSchema</Typography.Text>
-                            <div className="json-editor" style={{ marginTop: 8 }}>
-                              <CodeMirror
-                                value={JSON.stringify(selected.inputSchema, null, 2)}
-                                height="280px"
-                                extensions={[json()]}
-                                editable={false}
-                              />
-                            </div>
-                          </div>
-                          <div>
-                            <Typography.Text strong>outputSchema</Typography.Text>
-                            <div className="json-editor" style={{ marginTop: 8 }}>
-                              <CodeMirror
-                                value={JSON.stringify(
-                                  selected.outputSchema ?? null,
-                                  null,
-                                  2,
-                                )}
-                                height="220px"
-                                extensions={[json()]}
-                                editable={false}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      ),
-                    },
-                  ]}
-                />
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+      <ResizablePanels
+        storageKey={`mcp-debug-workbench-widths:${id}`}
+        panels={[
+          {
+            key: "tools",
+            content: leftPanel,
+            defaultWidth: 280,
+            minWidth: 200,
+            maxWidth: 480,
+          },
+          {
+            key: "form",
+            content: centerPanel,
+            defaultWidth: 420,
+            minWidth: 280,
+            maxWidth: 900,
+          },
+          {
+            key: "result",
+            content: rightPanel,
+            flex: true,
+            minWidth: 280,
+          },
+        ]}
+      />
 
       <Modal
         title={editingCase ? "编辑用例" : "新建用例"}

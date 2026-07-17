@@ -180,15 +180,19 @@ export function ResultViewer({
         <Alert
           type="error"
           showIcon
-          style={{ marginBottom: 12 }}
+          style={{ marginBottom: 12, maxWidth: "100%" }}
           message="协议/连接错误"
           description={
-            <div>
-              <Typography.Paragraph style={{ marginBottom: 8 }} copyable>
+            <div className="breakable-text">
+              <Typography.Paragraph
+                className="breakable-text"
+                style={{ marginBottom: 8 }}
+                copyable
+              >
                 {errMsg}
               </Typography.Paragraph>
               {result.protocolError ? (
-                <pre style={{ margin: 0, whiteSpace: "pre-wrap", fontSize: 12 }}>
+                <pre className="breakable-pre">
                   {JSON.stringify(result.protocolError, null, 2)}
                 </pre>
               ) : null}
@@ -201,10 +205,14 @@ export function ResultViewer({
         <Alert
           type="warning"
           showIcon
-          style={{ marginBottom: 12 }}
+          style={{ marginBottom: 12, maxWidth: "100%" }}
           message="工具返回错误"
           description={
-            <Typography.Paragraph style={{ marginBottom: 0 }} copyable>
+            <Typography.Paragraph
+              className="breakable-text"
+              style={{ marginBottom: 0 }}
+              copyable
+            >
               {errMsg}
             </Typography.Paragraph>
           }
@@ -215,16 +223,16 @@ export function ResultViewer({
         <Alert
           type="info"
           showIcon
-          style={{ marginBottom: 12 }}
+          style={{ marginBottom: 12, maxWidth: "100%" }}
           message="outputSchema 校验未通过"
           description={
-            <div>
+            <div className="breakable-text">
               <div style={{ marginBottom: 6 }}>
                 返回的 structuredContent 与工具声明的 outputSchema 不一致（可能是服务端实现问题）。
               </div>
               <ul style={{ margin: 0, paddingLeft: 18 }}>
                 {(result.schemaValidation?.errors ?? []).slice(0, 8).map((e, i) => (
-                  <li key={i}>
+                  <li key={i} className="breakable-text">
                     <code>{e.path || "/"}</code> {e.message}
                   </li>
                 ))}
