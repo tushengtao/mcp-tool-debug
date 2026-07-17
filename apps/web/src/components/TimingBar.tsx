@@ -12,7 +12,7 @@ const statusColor: Record<RunStatus, string> = {
 
 function formatTime(iso?: string | null): string {
   if (!iso) return "-";
-  return dayjs(iso).format("YYYY-MM-DD HH:mm:ss.SSS");
+  return dayjs(iso).format("YYYY-MM-DD HH:mm:ss");
 }
 
 export function TimingBar(props: {
