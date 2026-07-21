@@ -1,15 +1,18 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {
+  StreamableHTTPClientTransport,
+  StreamableHTTPError,
+} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type {
   ContentItem,
-  McpConnection,
   RunStatus,
   SchemaValidationResult,
   TransportType,
 } from "@mcp-debug/shared";
 import * as repo from "../db/repos.js";
+import type { StoredMcpConnection } from "../db/repos.js";
 import { validateAgainstSchema } from "../services/schema-validate.js";
 import { nowIso } from "../util/id.js";
 
@@ -63,14 +66,14 @@ class ConnectionManager {
     }
   }
 
-  private buildHeaders(conn: McpConnection): HeadersInit | undefined {
+  private buildHeaders(conn: StoredMcpConnection): HeadersInit | undefined {
     const headers = conn.headers ?? {};
     if (!Object.keys(headers).length) return undefined;
     return headers;
   }
 
   private async connectWithTransport(
-    conn: McpConnection,
+    conn: StoredMcpConnection,
     kind: "streamable_http" | "sse",
   ): Promise<LiveSession> {
     const client = new Client({ name: "mcp-tool-debug", version: "0.1.0" });
@@ -95,7 +98,7 @@ class ConnectionManager {
     };
   }
 
-  async connect(id: string): Promise<McpConnection> {
+  async connect(id: string): Promise<StoredMcpConnection> {
     const conn = await repo.getConnection(id);
     if (!conn) throw new Error("连接不存在");
     if (this.sessions.has(id)) {
@@ -169,18 +172,115 @@ class ConnectionManager {
     return session;
   }
 
+  private isExpiredStreamableSession(
+    session: LiveSession,
+    error: unknown,
+  ): boolean {
+    if (session.transportUsed !== "streamable_http") return false;
+    const transport = session.transport as StreamableHTTPClientTransport;
+    return (
+      Boolean(transport.sessionId) &&
+      error instanceof StreamableHTTPError &&
+      error.code === 404
+    );
+  }
+
+  private async discardSession(id: string, session: LiveSession): Promise<void> {
+    if (this.sessions.get(id) === session) {
+      this.sessions.delete(id);
+    }
+    // The upstream server already rejected this session ID. Close the local
+    // transport only; sending DELETE with the stale ID cannot recover it.
+    await session.client.close().catch(() => undefined);
+  }
+
+  private async markSessionUnavailable(id: string, error: unknown): Promise<void> {
+    const detail = error instanceof Error ? error.message : String(error);
+    const message =
+      error instanceof StreamableHTTPError && error.code
+        ? `HTTP ${error.code}: ${detail}`
+        : detail;
+    await repo.markConnectionStatus(id, {
+      lastConnectedAt: null,
+      lastError: message,
+    });
+  }
+
+  private async withSessionRecovery<T>(
+    id: string,
+    operation: (session: LiveSession) => Promise<T>,
+  ): Promise<T> {
+    const session = await this.ensureConnected(id);
+    try {
+      return await operation(session);
+    } catch (error) {
+      if (!this.isExpiredStreamableSession(session, error)) throw error;
+
+      console.warn(
+        JSON.stringify({
+          event: "mcp_session_recovery_started",
+          connectionId: id,
+          reason: "http_404",
+        }),
+      );
+      await this.discardSession(id, session);
+
+      let replacement: LiveSession;
+      try {
+        await this.connect(id);
+        replacement = this.sessions.get(id)!;
+        if (!replacement) throw new Error("MCP session recovery failed");
+      } catch (reconnectError) {
+        console.warn(
+          JSON.stringify({
+            event: "mcp_session_recovery_failed",
+            connectionId: id,
+            stage: "initialize",
+          }),
+        );
+        throw reconnectError;
+      }
+
+      try {
+        const result = await operation(replacement);
+        console.info(
+          JSON.stringify({
+            event: "mcp_session_recovery_succeeded",
+            connectionId: id,
+          }),
+        );
+        return result;
+      } catch (retryError) {
+        if (this.isExpiredStreamableSession(replacement, retryError)) {
+          await this.discardSession(id, replacement);
+          await this.markSessionUnavailable(id, retryError);
+          console.warn(
+            JSON.stringify({
+              event: "mcp_session_recovery_failed",
+              connectionId: id,
+              stage: "retry",
+            }),
+          );
+        }
+        throw retryError;
+      }
+    }
+  }
+
   async syncTools(id: string) {
     return this.withQueue(id, async () => {
-      const session = await this.ensureConnected(id);
-      const tools: any[] = [];
-      let cursor: string | undefined;
-      do {
-        const res = await session.client.listTools(
-          cursor ? { cursor } : undefined,
-        );
-        tools.push(...(res.tools ?? []));
-        cursor = res.nextCursor;
-      } while (cursor);
+      const tools = await this.withSessionRecovery(id, async (session) => {
+        const collected: any[] = [];
+        let cursor: string | undefined;
+        do {
+          const res = await session.client.listTools(
+            cursor ? { cursor } : undefined,
+          );
+          collected.push(...(res.tools ?? []));
+          cursor = res.nextCursor;
+        } while (cursor);
+        return collected;
+      });
 
       return repo.replaceTools(
         id,
@@ -211,33 +311,19 @@ class ConnectionManager {
 
       const startedAtMs = Date.now();
       const startedAt = new Date(startedAtMs).toISOString();
-      let session: LiveSession;
-      try {
-        session = await this.ensureConnected(connectionId);
-      } catch (err) {
-        const endedAtMs = Date.now();
-        return {
-          startedAt,
-          endedAt: new Date(endedAtMs).toISOString(),
-          durationMs: endedAtMs - startedAtMs,
-          status: "protocol_error",
-          isError: true,
-          content: [],
-          protocolError: {
-            message: err instanceof Error ? err.message : String(err),
-          },
-        };
-      }
-
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
         // SDK callTool may not accept abort; race with timeout promise
-        const resultPromise = session.client.callTool({
-          name: toolName,
-          arguments: args,
-        });
+        const resultPromise = this.withSessionRecovery(
+          connectionId,
+          (session) =>
+            session.client.callTool({
+              name: toolName,
+              arguments: args,
+            }),
+        );
         const timeoutPromise = new Promise<never>((_, reject) => {
           controller.signal.addEventListener("abort", () => {
             reject(Object.assign(new Error("Tool call timed out"), { code: "TIMEOUT" }));

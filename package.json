@@ -10,6 +10,7 @@
     "build:shared": "npm run build --workspace=packages/shared",
     "build:server": "npm run build:shared && npm run build --workspace=apps/server",
     "build:web": "npm run build --workspace=apps/web",
+    "test:server": "tsx --test scripts/session-recovery.test.ts",
     "dev": "npm run dev:server & npm run dev:web",
     "dev:server": "npm run build:shared && npm run dev --workspace=apps/server",
     "dev:web": "npm run dev --workspace=apps/web",

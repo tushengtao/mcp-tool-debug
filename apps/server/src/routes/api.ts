@@ -4,12 +4,14 @@ import type {
   CreateConnectionInput,
   CreateTestCaseInput,
   ExportBundle,
+  McpConnection,
   SuiteRunRequest,
   UpdateConnectionInput,
   UpdateTestCaseInput,
 } from "@mcp-debug/shared";
 import { connectionManager } from "../mcp/connection-manager.js";
 import * as repo from "../db/repos.js";
+import type { StoredMcpConnection } from "../db/repos.js";
 import { invokeAndPersist, runCase, runSuite } from "../services/case-runner.js";
 import { dialect } from "../db/client.js";
 
@@ -17,6 +19,14 @@ const app = new Hono();
 
 function bad(c: any, message: string, status = 400) {
   return c.json({ error: message }, status);
+}
+
+function toPublicConnection(conn: StoredMcpConnection): McpConnection {
+  const { headers, ...publicFields } = conn;
+  return {
+    ...publicFields,
+    headerNames: Object.keys(headers).sort((a, b) => a.localeCompare(b)),
+  };
 }
 
 app.get("/health", (c) =>
@@ -30,21 +40,21 @@ app.get("/health", (c) =>
 // Connections
 app.get("/connections", async (c) => {
   const list = await repo.listConnections(connectionManager.liveIds());
-  return c.json(list);
+  return c.json(list.map(toPublicConnection));
 });
 
 app.post("/connections", async (c) => {
   const body = (await c.req.json()) as CreateConnectionInput;
   if (!body?.name || !body?.url) return bad(c, "name 与 url 必填");
   const created = await repo.createConnection(body);
-  return c.json(created, 201);
+  return c.json(toPublicConnection(created), 201);
 });
 
 app.get("/connections/:id", async (c) => {
   const id = c.req.param("id");
   const conn = await repo.getConnection(id, connectionManager.isLive(id));
   if (!conn) return bad(c, "连接不存在", 404);
-  return c.json(conn);
+  return c.json(toPublicConnection(conn));
 });
 
 app.patch("/connections/:id", async (c) => {
@@ -52,7 +62,9 @@ app.patch("/connections/:id", async (c) => {
   const body = (await c.req.json()) as UpdateConnectionInput;
   const updated = await repo.updateConnection(id, body);
   if (!updated) return bad(c, "连接不存在", 404);
-  return c.json({ ...updated, live: connectionManager.isLive(id) });
+  return c.json(
+    toPublicConnection({ ...updated, live: connectionManager.isLive(id) }),
+  );
 });
 
 app.delete("/connections/:id", async (c) => {
@@ -66,7 +78,7 @@ app.post("/connections/:id/connect", async (c) => {
   const id = c.req.param("id");
   try {
     const conn = await connectionManager.connect(id);
-    return c.json(conn);
+    return c.json(toPublicConnection(conn));
   } catch (err) {
     return bad(c, err instanceof Error ? err.message : String(err), 502);
   }
@@ -76,7 +88,7 @@ app.post("/connections/:id/disconnect", async (c) => {
   const id = c.req.param("id");
   await connectionManager.disconnect(id);
   const conn = await repo.getConnection(id, false);
-  return c.json(conn);
+  return c.json(conn ? toPublicConnection(conn) : null);
 });
 
 app.post("/connections/:id/sync-tools", async (c) => {

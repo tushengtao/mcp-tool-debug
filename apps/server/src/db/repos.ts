@@ -24,6 +24,10 @@ import { jsonStringify, newId, nowIso, safeJsonParse } from "../util/id.js";
 
 type Tables = typeof sqliteSchema;
 
+export type StoredMcpConnection = Omit<McpConnection, "headerNames"> & {
+  headers: Record<string, string>;
+};
+
 function tables(): Tables {
   return (dialect === "postgres" ? pgSchema : sqliteSchema) as Tables;
 }
@@ -45,7 +49,7 @@ function mapConnection(
     updatedAt: string;
   },
   live = false,
-): McpConnection {
+): StoredMcpConnection {
   return {
     id: row.id,
     name: row.name,
@@ -204,7 +208,9 @@ function mapSuite(row: {
   };
 }
 
-export async function listConnections(liveIds: Set<string>): Promise<McpConnection[]> {
+export async function listConnections(
+  liveIds: Set<string>,
+): Promise<StoredMcpConnection[]> {
   const t = tables();
   const db = getDb() as any;
   const rows = await db.select().from(t.mcpConnections).orderBy(desc(t.mcpConnections.updatedAt));
@@ -214,7 +220,7 @@ export async function listConnections(liveIds: Set<string>): Promise<McpConnecti
 export async function getConnection(
   id: string,
   live = false,
-): Promise<McpConnection | null> {
+): Promise<StoredMcpConnection | null> {
   const t = tables();
   const db = getDb() as any;
   const rows = await db
@@ -226,7 +232,9 @@ export async function getConnection(
   return mapConnection(rows[0], live);
 }
 
-export async function createConnection(input: CreateConnectionInput): Promise<McpConnection> {
+export async function createConnection(
+  input: CreateConnectionInput,
+): Promise<StoredMcpConnection> {
   const t = tables();
   const db = getDb() as any;
   const id = newId();
@@ -253,7 +261,7 @@ export async function createConnection(input: CreateConnectionInput): Promise<Mc
 export async function updateConnection(
   id: string,
   input: UpdateConnectionInput,
-): Promise<McpConnection | null> {
+): Promise<StoredMcpConnection | null> {
   const existing = await getConnection(id);
   if (!existing) return null;
   const t = tables();

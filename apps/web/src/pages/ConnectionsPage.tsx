@@ -90,21 +90,31 @@ export function ConnectionsPage() {
         </div>
         <Space>
           <Button
-            onClick={async () => {
-              try {
-                const data = await api.exportAll();
-                const blob = new Blob([JSON.stringify(data, null, 2)], {
-                  type: "application/json",
-                });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `mcp-debug-export-${Date.now()}.json`;
-                a.click();
-                URL.revokeObjectURL(url);
-              } catch (e) {
-                message.error(e instanceof Error ? e.message : String(e));
-              }
+            onClick={() => {
+              Modal.confirm({
+                title: "导出文件包含连接凭据",
+                content:
+                  "导出文件会包含 Authorization、Cookie、API Key 等完整 Header，请仅保存到可信位置。",
+                okText: "确认导出",
+                cancelText: "取消",
+                onOk: async () => {
+                  try {
+                    const data = await api.exportAll();
+                    const blob = new Blob([JSON.stringify(data, null, 2)], {
+                      type: "application/json",
+                    });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `mcp-debug-export-${Date.now()}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  } catch (e) {
+                    message.error(e instanceof Error ? e.message : String(e));
+                    throw e;
+                  }
+                },
+              });
             }}
           >
             导出

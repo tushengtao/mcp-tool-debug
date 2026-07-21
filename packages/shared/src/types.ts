@@ -57,7 +57,8 @@ export interface McpConnection {
   description?: string | null;
   transport: TransportType;
   url: string;
-  headers: Record<string, string>;
+  /** Configured HTTP header names. Secret values are never returned by connection APIs. */
+  headerNames: string[];
   timeoutMs: number;
   enabled: boolean;
   lastConnectedAt?: string | null;
@@ -216,7 +217,11 @@ export interface ExportBundle {
   version: 1;
   exportedAt: string;
   connections: Array<
-    Omit<McpConnection, "live" | "lastConnectedAt" | "lastError" | "serverInfo"> & {
+    Omit<
+      McpConnection,
+      "headerNames" | "live" | "lastConnectedAt" | "lastError" | "serverInfo"
+    > & {
+      headers: Record<string, string>;
       cases: TestCase[];
     }
   >;

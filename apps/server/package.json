@@ -11,14 +11,14 @@
   "dependencies": {
     "@hono/node-server": "1.14.1",
     "@mcp-debug/shared": "file:../../packages/shared",
-    "@modelcontextprotocol/sdk": "1.12.1",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "ajv": "8.17.1",
     "ajv-formats": "3.0.1",
     "better-sqlite3": "11.9.1",
     "drizzle-orm": "0.43.1",
     "hono": "4.7.7",
     "pg": "8.14.1",
-    "zod": "3.24.2"
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@types/better-sqlite3": "7.6.13",
