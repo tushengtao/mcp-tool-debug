@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: deployment
+title: 容器化部署与本地编排
+scope:
+    - deployment/
+source_files: []
+depends_on: []
+related_to: []

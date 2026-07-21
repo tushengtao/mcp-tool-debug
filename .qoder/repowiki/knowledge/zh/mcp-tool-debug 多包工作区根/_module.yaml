@@ -1,0 +1,17 @@
+schema_version: 1
+module_path: ""
+title: mcp-tool-debug 多包工作区根
+scope:
+    - README.md
+    - README.en.md
+    - CONTRIBUTING.md
+    - SECURITY.md
+    - .gitignore
+    - .tool-versions
+    - package.json
+    - package-lock.json
+    - pnpm-workspace.yaml
+    - LICENSE
+source_files: []
+depends_on: []
+related_to: []

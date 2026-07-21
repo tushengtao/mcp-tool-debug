@@ -1,0 +1,35 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: main
+nodes_managed: true
+exported_at: "2026-07-21T06:01:30Z"
+modules:
+    "":
+        dir_name: mcp-tool-debug 多包工作区根
+        title: mcp-tool-debug 多包工作区根
+        scope:
+            - README.md
+            - README.en.md
+            - CONTRIBUTING.md
+            - SECURITY.md
+            - .gitignore
+            - .tool-versions
+            - package.json
+            - package-lock.json
+            - pnpm-workspace.yaml
+            - LICENSE
+        source_files: []
+        children:
+            - deployment
+        depends_on: []
+        related_to: []
+    deployment:
+        dir_name: 容器化部署与本地编排
+        title: 容器化部署与本地编排
+        scope:
+            - deployment/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

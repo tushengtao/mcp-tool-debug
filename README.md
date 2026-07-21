@@ -48,6 +48,14 @@
 - 基于 `node:22-alpine` 的 Docker Compose 部署。
 - 常规连接 API 不返回 Authorization 等 Header 值，减少凭据意外泄露。
 
+## 文档导航
+
+- [UI 设计规范](docs/ui-design.md)：界面信息架构、亮暗主题、组件与交互标准。
+- [Docker 部署说明](deployment/README.md)：SQLite / PostgreSQL 与容器化部署。
+- [贡献指南](CONTRIBUTING.md)：开发流程、测试与 Pull Request 约定。
+- [安全策略](SECURITY.md)：漏洞报告与凭据保护要求。
+- [English README](README.en.md)：英文项目介绍与使用说明。
+
 ## 快速开始
 
 要求：**Node.js 20+**，推荐使用 **Node.js 22**。
