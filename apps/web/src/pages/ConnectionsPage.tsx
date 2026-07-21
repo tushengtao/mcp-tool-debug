@@ -238,7 +238,7 @@ export function ConnectionsPage() {
         onCancel={() => setOpen(false)}
         onOk={onCreate}
         okText="创建"
-        destroyOnClose
+        destroyOnHidden
       >
         <Form
           form={form}

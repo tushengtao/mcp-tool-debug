@@ -1,6 +1,6 @@
 # MCP Tool 调试台
 
-本地单机 MCP Tools 调试与自动化测试工具。
+MCP Tools 调试与自动化测试工具。
 
 - 前端：React + Ant Design + RJSF + CodeMirror + react-markdown
 - 后端：Node.js + Hono + `@modelcontextprotocol/sdk`

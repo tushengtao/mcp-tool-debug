@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import Form from "@rjsf/antd";
 import type { RJSFSchema, UiSchema } from "@rjsf/utils";
 import validatorBase from "@rjsf/validator-ajv8";
@@ -14,77 +14,233 @@ interface Props {
   schema: Record<string, unknown>;
   formData: Record<string, unknown>;
   onChange: (data: Record<string, unknown>) => void;
-  onSubmit: () => void;
+  onSubmit: (data: Record<string, unknown>) => void;
   loading?: boolean;
 }
 
-/** Improve oneOf/anyOf option labels for RJSF select */
-function enhanceSchema(schema: Record<string, unknown>): Record<string, unknown> {
-  if (!schema || typeof schema !== "object") return schema;
-  const out: Record<string, unknown> = Array.isArray(schema) ? [...(schema as unknown[])] as any : { ...schema };
+type SchemaObject = Record<string, any>;
+type ChoiceKey = "oneOf" | "anyOf";
 
-  const labelOneOf = (items: unknown[]): unknown[] =>
-    items.map((item, idx) => {
-      if (!item || typeof item !== "object") return item;
-      const obj = enhanceSchema(item as Record<string, unknown>);
-      // RJSF uses title as option label for oneOf/anyOf. Set it from description or const type.
-      if (!obj.title) {
-        const desc = typeof obj.description === "string" ? obj.description : "";
-        const constType =
-          obj.properties &&
-          typeof obj.properties === "object" &&
-          (obj.properties as any).type &&
-          typeof (obj.properties as any).type === "object" &&
-          (obj.properties as any).type.const;
-        obj.title = desc || (constType ? String(constType) : `选项 ${idx + 1}`);
-      }
-      return obj;
-    });
+const CHOICE_KEYS: ChoiceKey[] = ["oneOf", "anyOf"];
 
-  if (Array.isArray(out.oneOf)) out.oneOf = labelOneOf(out.oneOf as unknown[]);
-  if (Array.isArray(out.anyOf)) out.anyOf = labelOneOf(out.anyOf as unknown[]);
+function isSchemaObject(value: unknown): value is SchemaObject {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
 
-  if (out.properties && typeof out.properties === "object") {
-    const props: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(out.properties as Record<string, unknown>)) {
-      props[k] =
-        v && typeof v === "object" ? enhanceSchema(v as Record<string, unknown>) : v;
-    }
-    out.properties = props;
+function requiredFields(schema: SchemaObject): string[] {
+  return Array.isArray(schema.required)
+    ? schema.required.filter((field: unknown): field is string => typeof field === "string")
+    : [];
+}
+
+function choiceTitle(schema: SchemaObject, index: number): string {
+  if (typeof schema.title === "string" && schema.title.trim()) return schema.title;
+  if (typeof schema.description === "string" && schema.description.trim()) {
+    return schema.description.trim();
   }
 
-  if (out.items && typeof out.items === "object" && !Array.isArray(out.items)) {
-    out.items = enhanceSchema(out.items as Record<string, unknown>);
+  const required = requiredFields(schema);
+  if (required.length) return `填写 ${required.join("、")}`;
+
+  const properties = isSchemaObject(schema.properties) ? schema.properties : {};
+  const constProperty = Object.values(properties).find(
+    (property) => isSchemaObject(property) && property.const !== undefined,
+  ) as SchemaObject | undefined;
+  return constProperty ? String(constProperty.const) : `选项 ${index + 1}`;
+}
+
+/**
+ * RJSF 会先渲染对象自身的 properties，再在底部渲染 oneOf/anyOf 选择器。
+ * 对于 MCP 常见的“父级定义字段、分支只写 required”模式，把对应字段定义复制到分支中，
+ * 让分支选择器能够真正控制要显示的字段。这里只构造表单用 Schema，不修改 Tool 原始 Schema。
+ */
+function enhanceSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  if (!isSchemaObject(schema)) return schema;
+  const out: SchemaObject = { ...schema };
+  const parentProperties = isSchemaObject(out.properties) ? out.properties : {};
+
+  for (const choiceKey of CHOICE_KEYS) {
+    if (!Array.isArray(out[choiceKey])) continue;
+
+    const options = out[choiceKey] as unknown[];
+    const requiredCounts = new Map<string, number>();
+    for (const option of options) {
+      if (!isSchemaObject(option)) continue;
+      for (const field of new Set(requiredFields(option))) {
+        requiredCounts.set(field, (requiredCounts.get(field) ?? 0) + 1);
+      }
+    }
+
+    // 只提升“部分分支要求、且父级已经定义”的字段；所有分支共有的字段仍作为公共字段显示。
+    const branchControlledFields = new Set(
+      [...requiredCounts.entries()]
+        .filter(([field, count]) => field in parentProperties && count > 0 && count < options.length)
+        .map(([field]) => field),
+    );
+
+    out[choiceKey] = options.map((option, index) => {
+      if (!isSchemaObject(option)) return option;
+      const optionSchema: SchemaObject = { ...option };
+      const hadExplicitTitle =
+        typeof optionSchema.title === "string" && Boolean(optionSchema.title.trim());
+      const optionProperties = isSchemaObject(optionSchema.properties)
+        ? { ...optionSchema.properties }
+        : {};
+
+      for (const field of requiredFields(optionSchema)) {
+        if (branchControlledFields.has(field) && !(field in optionProperties)) {
+          optionProperties[field] = parentProperties[field];
+        }
+      }
+
+      if (Object.keys(optionProperties).length) {
+        optionSchema.properties = optionProperties;
+        if (!optionSchema.type && out.type === "object") optionSchema.type = "object";
+      }
+
+      const enhancedOption = enhanceSchema(optionSchema) as SchemaObject;
+      if (!hadExplicitTitle) {
+        enhancedOption.title = choiceTitle(enhancedOption, index);
+        // description 已经作为选择项名称展示，分支展开后无需再重复一遍。
+        if (
+          typeof enhancedOption.description === "string" &&
+          enhancedOption.description.trim() === enhancedOption.title
+        ) {
+          delete enhancedOption.description;
+        }
+      }
+      return enhancedOption;
+    });
+  }
+
+  if (isSchemaObject(out.properties)) {
+    out.properties = Object.fromEntries(
+      Object.entries(out.properties).map(([key, property]) => [
+        key,
+        isSchemaObject(property) ? enhanceSchema(property) : property,
+      ]),
+    );
+  }
+
+  if (isSchemaObject(out.items)) out.items = enhanceSchema(out.items);
+  if (isSchemaObject(out.$defs)) {
+    out.$defs = Object.fromEntries(
+      Object.entries(out.$defs).map(([key, definition]) => [
+        key,
+        isSchemaObject(definition) ? enhanceSchema(definition) : definition,
+      ]),
+    );
+  }
+
+  // 没有公共 properties 的对象 choice 不需要先渲染一个空 ObjectField。
+  // 各分支已经具备 object 类型，移除表单派生 Schema 的父级 type 后由 MultiSchemaField 独立渲染。
+  const objectChoice = CHOICE_KEYS.map((key) => out[key])
+    .find((options) => Array.isArray(options)) as unknown[] | undefined;
+  if (
+    out.type === "object" &&
+    Object.keys(parentProperties).length === 0 &&
+    objectChoice?.length &&
+    objectChoice.every(
+      (option) =>
+        isSchemaObject(option) &&
+        (option.type === "object" || isSchemaObject(option.properties)),
+    )
+  ) {
+    delete out.type;
   }
 
   return out;
 }
 
-function buildUiSchema(schema: Record<string, unknown>): UiSchema {
-  const ui: UiSchema = {
-    "ui:submitButtonOptions": { norender: true },
-  };
-  const props = schema.properties as Record<string, any> | undefined;
-  if (!props) return ui;
-  for (const [key, prop] of Object.entries(props)) {
-    if (!prop || typeof prop !== "object") continue;
-    const field: UiSchema = {};
-    if (prop.oneOf || prop.anyOf) {
-      field["ui:options"] = { label: true };
-      // Hide the field-level title for oneOf/anyOf to avoid duplicate with option labels
-      field["ui:title"] = " ";
+function findChoice(schema: SchemaObject): { key: ChoiceKey; options: SchemaObject[] } | null {
+  for (const key of CHOICE_KEYS) {
+    if (Array.isArray(schema[key]) && schema[key].every(isSchemaObject)) {
+      return { key, options: schema[key] };
     }
-    if (prop.type === "string" && prop.enum) {
+  }
+  return null;
+}
+
+function branchControlledFields(schema: SchemaObject, options: SchemaObject[]): Set<string> {
+  const parentProperties = isSchemaObject(schema.properties) ? schema.properties : {};
+  const counts = new Map<string, number>();
+
+  for (const option of options) {
+    const optionProperties = isSchemaObject(option.properties) ? option.properties : {};
+    for (const field of requiredFields(option)) {
+      if (field in parentProperties && field in optionProperties) {
+        counts.set(field, (counts.get(field) ?? 0) + 1);
+      }
+    }
+  }
+
+  return new Set(
+    [...counts.entries()]
+      .filter(([, count]) => count > 0 && count < options.length)
+      .map(([field]) => field),
+  );
+}
+
+function buildUiSchema(schema: SchemaObject, root = true): UiSchema {
+  const ui: UiSchema = root
+    ? { "ui:submitButtonOptions": { norender: true } }
+    : {};
+  const properties = isSchemaObject(schema.properties) ? schema.properties : {};
+
+  for (const [key, property] of Object.entries(properties)) {
+    if (!isSchemaObject(property)) continue;
+    const field = buildUiSchema(property, false);
+    if (property.type === "string" && Array.isArray(property.enum)) {
       field["ui:widget"] = "select";
     }
+    // const 通常是 oneOf 的内部判别值，选择分支时由 RJSF 自动写入，无需让用户重复填写。
+    if (property.const !== undefined) field["ui:widget"] = "hidden";
     ui[key] = field;
   }
+
+  const choice = findChoice(schema);
+  if (!choice) return ui;
+
+  const controlledFields = branchControlledFields(schema, choice.options);
+  for (const fieldName of controlledFields) {
+    const field = (ui[fieldName] ?? {}) as UiSchema;
+    field["ui:widget"] = "hidden";
+    ui[fieldName] = field;
+  }
+
+  const enumOptions = choice.options.map((option, index) => ({
+    label: choiceTitle(option, index),
+    value: index,
+  }));
+  ui["ui:options"] = {
+    ...((ui["ui:options"] as Record<string, unknown> | undefined) ?? {}),
+    label: true,
+    enumOptions,
+  } as any;
+  ui[choice.key] = choice.options.map((option) => {
+    const optionUi = buildUiSchema(option, false);
+    optionUi["ui:options"] = {
+      ...((optionUi["ui:options"] as Record<string, unknown> | undefined) ?? {}),
+      label: false,
+    } as any;
+    return optionUi;
+  }) as any;
+
   return ui;
 }
 
 /** Translate common Ajv error messages to concise Chinese */
 function transformErrors(errors: any[]): any[] {
-  return errors.map((err) => {
+  return errors
+    .filter((err) => {
+      const schemaPath = String(err.schemaPath ?? "");
+      // Ajv 会同时返回每个失败分支的 required 和最终 anyOf/oneOf 错误；摘要仅保留聚合提示。
+      return !(
+        err.name === "required" &&
+        /\/(?:oneOf|anyOf)\/\d+\/required$/.test(schemaPath)
+      );
+    })
+    .map((err) => {
     const msg = String(err.message ?? "");
     const name = err.name;
     const params = err.params ?? {};
@@ -116,15 +272,16 @@ function transformErrors(errors: any[]): any[] {
       friendly = `格式不正确`;
     }
 
-    return {
-      ...err,
-      message: friendly,
-      stack: friendly,
-    };
-  });
+      return {
+        ...err,
+        message: friendly,
+        stack: friendly,
+      };
+    });
 }
 
 export function SchemaForm({ schema, formData, onChange, onSubmit, loading }: Props) {
+  const formId = useId();
   const [mode, setMode] = useState<"form" | "json">("form");
   const [jsonText, setJsonText] = useState("");
   const [jsonError, setJsonError] = useState<string | null>(null);
@@ -167,21 +324,17 @@ export function SchemaForm({ schema, formData, onChange, onSubmit, loading }: Pr
     setMode(next);
   };
 
-  const handleInvoke = () => {
-    if (mode === "json") {
-      try {
-        const parsed = JSON.parse(jsonText || "{}");
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-          message.error("JSON 必须是对象");
-          return;
-        }
-        onChange(parsed);
-        onSubmit();
-      } catch {
-        message.error("JSON 解析失败");
+  const handleJsonInvoke = () => {
+    try {
+      const parsed = JSON.parse(jsonText || "{}");
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        message.error("JSON 必须是对象");
+        return;
       }
-    } else {
-      onSubmit();
+      onChange(parsed);
+      onSubmit(parsed);
+    } catch {
+      message.error("JSON 解析失败");
     }
   };
 
@@ -197,7 +350,13 @@ export function SchemaForm({ schema, formData, onChange, onSubmit, loading }: Pr
           ]}
         />
         <Space>
-          <Button type="primary" loading={loading} onClick={handleInvoke}>
+          <Button
+            type="primary"
+            htmlType={mode === "form" ? "submit" : "button"}
+            form={mode === "form" ? formId : undefined}
+            loading={loading}
+            onClick={mode === "json" ? handleJsonInvoke : undefined}
+          >
             调用 Tool
           </Button>
         </Space>
@@ -206,20 +365,24 @@ export function SchemaForm({ schema, formData, onChange, onSubmit, loading }: Pr
       {mode === "form" ? (
         <div className="schema-form-wrap">
           <Form
+            id={formId}
             schema={rjsfSchema}
             uiSchema={uiSchema}
             formData={formData}
             validator={validator}
             transformErrors={transformErrors}
-            showErrorList={false}
+            showErrorList="top"
             noHtml5Validate
             experimental_defaultFormStateBehavior={{
               allOf: "populateDefaults",
               arrayMinItems: { populate: "all" },
+              constAsDefaults: "always",
               emptyObjectFields: "populateAllDefaults",
             }}
             onChange={(e) => onChange((e.formData as Record<string, unknown>) ?? {})}
-            onSubmit={() => onSubmit()}
+            onSubmit={(event) =>
+              onSubmit((event.formData as Record<string, unknown>) ?? {})
+            }
           >
             <div />
           </Form>

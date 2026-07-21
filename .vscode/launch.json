@@ -5,8 +5,9 @@
       "name": "Debug: Server",
       "type": "node",
       "request": "launch",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["tsx", "watch", "src/index.ts"],
+      "runtimeExecutable": "H:/vfox_sdk/nodejs/v-22.23.1/nodejs-22.23.1/node.exe",
+      "program": "${workspaceFolder}/node_modules/tsx/dist/cli.mjs",
+      "args": ["watch", "src/index.ts"],
       "cwd": "${workspaceFolder}/apps/server",
       "env": {
         "DATABASE_URL": "file:./data/mcp-debug.db",
@@ -22,8 +23,9 @@
       "name": "Debug: Mock MCP Server",
       "type": "node",
       "request": "launch",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["tsx", "scripts/mock-mcp-server.ts"],
+      "runtimeExecutable": "H:/vfox_sdk/nodejs/v-22.23.1/nodejs-22.23.1/node.exe",
+      "program": "${workspaceFolder}/node_modules/tsx/dist/cli.mjs",
+      "args": ["scripts/mock-mcp-server.ts"],
       "cwd": "${workspaceFolder}",
       "env": {
         "NODE_ENV": "development"

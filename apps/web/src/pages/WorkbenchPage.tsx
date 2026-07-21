@@ -98,11 +98,11 @@ export function WorkbenchPage() {
     reloadRuns(toolName);
   }, [toolName, id]);
 
-  const invoke = async () => {
+  const invoke = async (argumentsData: Record<string, unknown>) => {
     if (!toolName) return;
     setInvoking(true);
     try {
-      const res = await api.invoke(id, toolName, { arguments: formData, save: true });
+      const res = await api.invoke(id, toolName, { arguments: argumentsData, save: true });
       setResult(res);
       reloadRuns(toolName);
       if (res.status === "success" && !res.isError) {
@@ -531,7 +531,7 @@ export function WorkbenchPage() {
         onCancel={() => setCaseModal(false)}
         onOk={saveCase}
         width={720}
-        destroyOnClose
+        destroyOnHidden
       >
         <CaseEditor value={caseForm} onChange={setCaseForm} />
       </Modal>
