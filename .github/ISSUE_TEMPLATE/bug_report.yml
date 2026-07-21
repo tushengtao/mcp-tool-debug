@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a reproducible problem in MCP Tool Debug
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve MCP Tool Debug. Remove all credentials and private endpoints before submitting.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.1.0 or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Connection / transport
+        - Tool synchronization
+        - JSON Schema form
+        - Tool invocation / result viewer
+        - Test cases / automation
+        - Database / deployment
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: Provide the smallest reproducible sequence and a sanitized Tool schema when relevant.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: OS, Node.js version, browser, SQLite/PostgreSQL, Docker/non-Docker
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs
+      render: shell
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Security check
+      options:
+        - label: I removed tokens, cookies, credentials, private endpoints, and sensitive business data.
+          required: true

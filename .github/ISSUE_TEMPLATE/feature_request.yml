@@ -1,0 +1,33 @@
+name: Feature request
+description: Propose an improvement or new MCP testing workflow
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What MCP development or testing problem are you trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the expected workflow and result.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Relevant transport
+      options:
+        - Transport-independent
+        - Streamable HTTP
+        - SSE
+        - stdio
+        - Other

@@ -1,5 +1,7 @@
 # Docker 部署
 
+[简体中文](README.md) | [English](README.en.md)
+
 镜像构建使用 `node:22-alpine`。API 运行在 Node.js 容器中，Web 静态文件由 Nginx 提供，并将 `/api/` 请求转发给 API 容器。
 
 ## 启动
@@ -27,4 +29,3 @@ chmod +x deploy.sh
 ```
 
 `down` 不会删除 SQLite 数据。数据保存在名为 `mcp-tool-debug-data` 的 Docker volume 中。
-

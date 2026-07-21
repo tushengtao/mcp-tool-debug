@@ -2,6 +2,28 @@
   "name": "mcp-tool-debug",
   "private": true,
   "version": "0.1.0",
+  "description": "Open-source MCP Tool inspector, JSON Schema 2020-12 form debugger, and automation testing workbench for Streamable HTTP and SSE servers.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tushengtao/mcp-tool-debug.git"
+  },
+  "homepage": "https://github.com/tushengtao/mcp-tool-debug#readme",
+  "bugs": {
+    "url": "https://github.com/tushengtao/mcp-tool-debug/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "mcp-inspector",
+    "mcp-client",
+    "mcp-tools",
+    "json-schema",
+    "json-schema-2020-12",
+    "automation-testing",
+    "streamable-http",
+    "sse"
+  ],
   "workspaces": [
     "packages/*",
     "apps/*"
@@ -11,12 +33,15 @@
     "build:server": "npm run build:shared && npm run build --workspace=apps/server",
     "build:web": "npm run build --workspace=apps/web",
     "test:server": "tsx --test scripts/session-recovery.test.ts",
-    "dev": "npm run dev:server & npm run dev:web",
+    "dev": "concurrently --kill-others-on-fail --names server,web --prefix-colors blue,green \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "npm run build:shared && npm run dev --workspace=apps/server",
     "dev:web": "npm run dev --workspace=apps/web",
     "start": "npm run start --workspace=apps/server"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "concurrently": "9.2.1"
   }
 }

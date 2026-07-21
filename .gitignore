@@ -10,3 +10,4 @@ data
 .vite
 coverage
 .npm-cache
+.trae
