@@ -1,12 +1,11 @@
 import { useMemo } from "react";
 import { Alert, Empty, Tabs, Tag, Typography } from "antd";
-import CodeMirror from "@uiw/react-codemirror";
-import { json } from "@codemirror/lang-json";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { AssertResult, ContentItem, InvokeResponse, SchemaValidationResult } from "@mcp-debug/shared";
 import { TimingBar } from "./TimingBar";
 import { StatusBadge } from "./StatusBadge";
+import { JsonCodeEditor } from "./JsonCodeEditor";
 import { useUi } from "../ui";
 
 const contentText = (content: ContentItem[] = []) => content.filter((item) => item.type === "text" && typeof item.text === "string").map((item) => item.text).join("\n");
@@ -48,8 +47,7 @@ function Assertion({ value }: { value?: AssertResult | null }) {
 }
 
 function JsonPane({ value, height = "360px" }: { value: unknown; height?: string }) {
-  const { resolvedTheme } = useUi();
-  return <div className="json-editor"><CodeMirror value={JSON.stringify(value, null, 2)} height={height} extensions={[json()]} editable={false} theme={resolvedTheme === "dark" ? "dark" : "light"} /></div>;
+  return <JsonCodeEditor value={JSON.stringify(value, null, 2)} height={height} editable={false} />;
 }
 
 export function ResultViewer({

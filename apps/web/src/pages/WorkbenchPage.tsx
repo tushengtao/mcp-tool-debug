@@ -25,8 +25,6 @@ import {
   SaveOutlined,
 } from "@ant-design/icons";
 import type { InvocationRun, InvokeResponse, McpConnection, McpTool, TestCase } from "@mcp-debug/shared";
-import CodeMirror from "@uiw/react-codemirror";
-import { json } from "@codemirror/lang-json";
 import dayjs from "dayjs";
 import { api } from "../api/client";
 import { SchemaForm } from "../components/SchemaForm";
@@ -34,6 +32,7 @@ import { ResultViewer } from "../components/ResultViewer";
 import { CaseEditor, caseToForm, type CaseFormValue } from "../components/CaseEditor";
 import { ResizablePanels } from "../components/ResizablePanels";
 import { StatusBadge } from "../components/StatusBadge";
+import { JsonCodeEditor } from "../components/JsonCodeEditor";
 import { useUi } from "../ui";
 
 function useWorkbenchWidth() {
@@ -44,7 +43,7 @@ function useWorkbenchWidth() {
 
 export function WorkbenchPage() {
   const { id = "" } = useParams();
-  const { text, resolvedTheme } = useUi();
+  const { text } = useUi();
   const viewportWidth = useWorkbenchWidth();
   const narrow = viewportWidth < 1280;
   const compactThreeColumn = viewportWidth <= 1320;
@@ -139,7 +138,7 @@ export function WorkbenchPage() {
         { title: text("状态", "Status"), key: "status", width: 140, render: (_, row) => <StatusBadge status={row.isError ? "error" : row.status === "success" ? "success" : "warning"} label={row.status} /> },
         { title: text("操作", "Actions"), width: 150, render: (_, row) => <Space><Button onClick={() => loadRun(row)}>{text("查看", "View")}</Button><Dropdown menu={{ items: [{ key: "reuse", label: text("复用参数", "Reuse arguments"), onClick: () => loadRun(row, true) }, { type: "divider" }, { key: "delete", danger: true, label: <Popconfirm title={text("删除记录？", "Delete run?")} onConfirm={async () => { await api.deleteRun(row.id); await reloadRuns(toolName); }}>{text("删除", "Delete")}</Popconfirm> }] }}><Button icon={<EllipsisOutlined />} /></Dropdown></Space> },
       ]} /> },
-      { key: "schema", label: "Schema", children: <div className="schema-stack"><SchemaCode title="inputSchema" value={selected.inputSchema} dark={resolvedTheme === "dark"} height="300px" /><SchemaCode title="outputSchema" value={selected.outputSchema ?? null} dark={resolvedTheme === "dark"} height="220px" /></div> },
+      { key: "schema", label: "Schema", children: <div className="schema-stack"><SchemaCode title="inputSchema" value={selected.inputSchema} height="300px" /><SchemaCode title="outputSchema" value={selected.outputSchema ?? null} height="220px" /></div> },
     ]} /></div>
   </div>;
   const resultPanel = <div className="result-pane"><div className="pane-heading"><div><strong>{text("运行结果", "Run result")}</strong>{result && <StatusBadge status={result.isError ? "error" : result.status === "success" ? "success" : "warning"} label={result.status} />}</div></div><div className="result-scroll"><ResultViewer result={result} /></div></div>;
@@ -158,6 +157,6 @@ export function WorkbenchPage() {
   </div>;
 }
 
-function SchemaCode({ title, value, dark, height }: { title: string; value: unknown; dark: boolean; height: string }) {
-  return <div><Typography.Text strong>{title}</Typography.Text><div className="json-editor"><CodeMirror value={JSON.stringify(value, null, 2)} height={height} extensions={[json()]} editable={false} theme={dark ? "dark" : "light"} /></div></div>;
+function SchemaCode({ title, value, height }: { title: string; value: unknown; height: string }) {
+  return <div><Typography.Text strong>{title}</Typography.Text><JsonCodeEditor value={JSON.stringify(value, null, 2)} height={height} editable={false} /></div>;
 }

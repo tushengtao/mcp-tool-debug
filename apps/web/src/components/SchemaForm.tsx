@@ -4,8 +4,7 @@ import type { RJSFSchema, UiSchema } from "@rjsf/utils";
 import validatorBase, { customizeValidator } from "@rjsf/validator-ajv8";
 import Ajv2020 from "ajv/dist/2020";
 import { Button, Segmented, Typography, message } from "antd";
-import CodeMirror from "@uiw/react-codemirror";
-import { json } from "@codemirror/lang-json";
+import { JsonCodeEditor } from "./JsonCodeEditor";
 import { useUi } from "../ui";
 
 const validator = customizeValidator({ AjvClass: Ajv2020 as any }) ?? validatorBase;
@@ -84,7 +83,7 @@ function buildUiSchema(schema: SchemaObject, text: (zh: string, en: string) => s
 }
 
 export function SchemaForm({ schema, formData, onChange, onSubmit, loading }: Props) {
-  const { text, resolvedTheme } = useUi();
+  const { text } = useUi();
   const formId = useId();
   const [mode, setMode] = useState<"form" | "json">("form");
   const [jsonText, setJsonText] = useState("");
@@ -118,6 +117,6 @@ export function SchemaForm({ schema, formData, onChange, onSubmit, loading }: Pr
 
   return <div className="schema-form-shell" onKeyDown={(event) => { if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); mode === "form" ? (document.getElementById(formId) as HTMLFormElement | null)?.requestSubmit() : (() => { try { const parsed = parseJson(); onChange(parsed); onSubmit(parsed); } catch (error) { message.error(String(error)); } })(); } }}>
     <div className="form-commandbar"><Segmented value={mode} onChange={(value) => switchMode(value as "form" | "json")} options={[{ label: text("表单", "Form"), value: "form" }, { label: "JSON", value: "json" }]} /><Button type="primary" htmlType={mode === "form" ? "submit" : "button"} form={mode === "form" ? formId : undefined} loading={loading} onClick={mode === "json" ? () => { try { const parsed = parseJson(); onChange(parsed); onSubmit(parsed); } catch (error) { message.error(error instanceof Error ? error.message : String(error)); } } : undefined}>{text("调用 Tool", "Call tool")} <kbd>⌘↵</kbd></Button></div>
-    {mode === "form" ? <div className="schema-form-wrap"><Form id={formId} schema={rjsfSchema} uiSchema={uiSchema} formData={formData} validator={validator} transformErrors={transformErrors} showErrorList="top" noHtml5Validate onError={() => undefined} experimental_defaultFormStateBehavior={{ allOf: "populateDefaults", arrayMinItems: { populate: "all" }, constAsDefaults: "always", emptyObjectFields: "populateAllDefaults" }} onChange={(event) => onChange((event.formData as Record<string, unknown>) ?? {})} onSubmit={(event) => onSubmit((event.formData as Record<string, unknown>) ?? {})}><div /></Form><Typography.Paragraph type="secondary" className="form-hint">{text("复杂 oneOf / anyOf 可切换到 JSON 模式精确编辑", "Switch to JSON mode for precise oneOf / anyOf editing")}</Typography.Paragraph></div> : <div><div className="json-editor"><CodeMirror value={jsonText} height="360px" extensions={[json()]} theme={resolvedTheme === "dark" ? "dark" : "light"} onChange={(value) => { setJsonText(value); try { JSON.parse(value || "{}"); setJsonError(null); } catch (error) { setJsonError(error instanceof Error ? error.message : "Invalid JSON"); } }} /></div>{jsonError && <Typography.Text type="danger">{text("JSON 无效", "Invalid JSON")}: {jsonError}</Typography.Text>}</div>}
+    {mode === "form" ? <div className="schema-form-wrap"><Form id={formId} schema={rjsfSchema} uiSchema={uiSchema} formData={formData} validator={validator} transformErrors={transformErrors} showErrorList="top" noHtml5Validate onError={() => undefined} experimental_defaultFormStateBehavior={{ allOf: "populateDefaults", arrayMinItems: { populate: "all" }, constAsDefaults: "always", emptyObjectFields: "populateAllDefaults" }} onChange={(event) => onChange((event.formData as Record<string, unknown>) ?? {})} onSubmit={(event) => onSubmit((event.formData as Record<string, unknown>) ?? {})}><div /></Form><Typography.Paragraph type="secondary" className="form-hint">{text("复杂 oneOf / anyOf 可切换到 JSON 模式精确编辑", "Switch to JSON mode for precise oneOf / anyOf editing")}</Typography.Paragraph></div> : <div><JsonCodeEditor value={jsonText} height="360px" onChange={(value) => { setJsonText(value); try { JSON.parse(value || "{}"); setJsonError(null); } catch (error) { setJsonError(error instanceof Error ? error.message : "Invalid JSON"); } }} />{jsonError && <Typography.Text type="danger">{text("JSON 无效", "Invalid JSON")}: {jsonError}</Typography.Text>}</div>}
   </div>;
 }
