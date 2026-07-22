@@ -17,6 +17,8 @@ interface MockStats {
   sessionNotFoundResponses: number;
   listToolsCalls: number;
   toolCalls: number;
+  activeToolCalls: number;
+  maxConcurrentToolCalls: number;
 }
 
 interface MockProcess {
@@ -107,7 +109,13 @@ test("Streamable HTTP session recovery and public connection safety", async (t) 
   const { connectionManager } = await import(
     "../apps/server/src/mcp/connection-manager.js"
   );
-  const { runSuite } = await import("../apps/server/src/services/case-runner.js");
+  const {
+    cancelSuiteRun,
+    getSuiteProgress,
+    runSuite,
+    startSuiteRun,
+    SuiteConflictError,
+  } = await import("../apps/server/src/services/case-runner.js");
   const { default: api } = await import("../apps/server/src/routes/api.js");
   await migrate();
 
@@ -146,6 +154,8 @@ test("Streamable HTTP session recovery and public connection safety", async (t) 
           sessionNotFoundResponses: 1,
           listToolsCalls: 1,
           toolCalls: 0,
+          activeToolCalls: 0,
+          maxConcurrentToolCalls: 0,
         });
       } finally {
         await connectionManager.disconnect(conn.id);
@@ -208,6 +218,114 @@ test("Streamable HTTP session recovery and public connection safety", async (t) 
       assert.equal(stats.sessionNotFoundResponses, 2);
       assert.equal(stats.toolCalls, 0);
     });
+  });
+
+  async function waitForSuite(suiteId: string) {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const progress = await getSuiteProgress(suiteId);
+      assert.ok(progress);
+      if (["passed", "failed", "cancelled"].includes(progress.suite.status)) {
+        return progress;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error(`Timed out waiting for suite ${suiteId}`);
+  }
+
+  await t.test("async suite returns immediately and uses independent sessions", async () => {
+    await withMock("normal", async (mock) => {
+      const conn = await createConnection(mock);
+      const cases = await Promise.all(Array.from({ length: 4 }, (_, index) =>
+        repo.createCase(conn.id, "slow", {
+          name: `parallel-${index}`,
+          arguments: {},
+          assert: { expectIsError: false },
+        })));
+      const startedAt = Date.now();
+      const suite = await startSuiteRun(conn.id, {
+        caseIds: cases.map((item) => item.id),
+        parallel: 2,
+      });
+      assert.equal(suite.status, "running");
+      assert.ok(Date.now() - startedAt < 100);
+      await assert.rejects(
+        () => startSuiteRun(conn.id, { caseIds: [cases[0].id], parallel: 1 }),
+        SuiteConflictError,
+      );
+      const progress = await waitForSuite(suite.id);
+      assert.equal(progress.suite.status, "passed");
+      assert.equal(progress.suite.passed, 4);
+      assert.equal(progress.runs.length, 4);
+      const stats = await mock.stats();
+      assert.equal(stats.initializedSessions, 2);
+      assert.equal(stats.maxConcurrentToolCalls, 2);
+      assert.equal(stats.toolCalls, 4);
+      const history = await repo.listRunSummaries({ testCaseId: cases[0].id });
+      assert.equal(history.length, 1);
+      const overviews = await repo.listCaseOverviews(conn.id);
+      assert.equal(overviews.filter((item) => item.lastRun?.passed).length, 4);
+    });
+  });
+
+  await t.test("async worker recovers an expired session before persisting", async () => {
+    await withMock("expire-once", async (mock) => {
+      const conn = await createConnection(mock);
+      const testCase = await repo.createCase(conn.id, "ping", {
+        name: "worker recovery",
+        arguments: {},
+        assert: { expectIsError: false },
+      });
+      const suite = await startSuiteRun(conn.id, {
+        caseIds: [testCase.id],
+        parallel: 1,
+      });
+      const progress = await waitForSuite(suite.id);
+      assert.equal(progress.suite.status, "passed");
+      assert.equal(progress.runs.length, 1);
+      const stats = await mock.stats();
+      assert.equal(stats.initializedSessions, 2);
+      assert.equal(stats.sessionNotFoundResponses, 1);
+      assert.equal(stats.toolCalls, 1);
+    });
+  });
+
+  await t.test("cancelling stops scheduling and marks remaining cases skipped", async () => {
+    await withMock("normal", async (mock) => {
+      const conn = await createConnection(mock);
+      const cases = await Promise.all(Array.from({ length: 6 }, (_, index) =>
+        repo.createCase(conn.id, "slow", {
+          name: `cancel-${index}`,
+          arguments: {},
+          assert: { expectIsError: false },
+        })));
+      const suite = await startSuiteRun(conn.id, {
+        caseIds: cases.map((item) => item.id),
+        parallel: 2,
+      });
+      const deadline = Date.now() + 5_000;
+      while ((await mock.stats()).toolCalls < 2 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const cancellingSuite = await cancelSuiteRun(suite.id);
+      assert.equal(cancellingSuite?.status, "cancelling");
+      const progress = await waitForSuite(suite.id);
+      assert.equal(progress.suite.status, "cancelled");
+      assert.equal(progress.suite.passed, 2);
+      assert.equal(progress.suite.failed, 0);
+      assert.equal(progress.suite.skipped, 4);
+      assert.equal((await mock.stats()).toolCalls, 2);
+    });
+  });
+
+  await t.test("interrupted suite runs are reconciled as cancelled", async () => {
+    const suite = await repo.createSuiteRun({ name: "interrupted", total: 3 });
+    await repo.updateSuiteRun(suite.id, { passed: 1 });
+    assert.equal(await repo.reconcileInterruptedSuiteRuns(), 1);
+    const reconciled = await repo.getSuiteRun(suite.id);
+    assert.equal(reconciled?.status, "cancelled");
+    assert.equal(reconciled?.passed, 1);
+    assert.equal(reconciled?.skipped, 2);
   });
 
   for (const mode of ["http-401", "http-500"]) {
@@ -280,6 +398,38 @@ test("Streamable HTTP session recovery and public connection safety", async (t) 
       "Bearer must-not-leak",
     );
     assert.equal(JSON.stringify(await preserveResponse.json()).includes("must-not-leak"), false);
+
+    const patchHeadersResponse = await api.request(`/connections/${stored.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        headerPatch: {
+          authorization: "Bearer replaced-secret",
+          "X-API-Key": null,
+          "X-Tenant": "tenant-secret",
+        },
+      }),
+    });
+    assert.equal(patchHeadersResponse.status, 200);
+    assert.deepEqual((await repo.getConnection(stored.id))?.headers, {
+      authorization: "Bearer replaced-secret",
+      "X-Tenant": "tenant-secret",
+    });
+    const patchedPublicConnection = await patchHeadersResponse.json() as Record<string, unknown>;
+    assert.deepEqual(patchedPublicConnection.headerNames, ["authorization", "X-Tenant"]);
+    assert.equal(JSON.stringify(patchedPublicConnection).includes("replaced-secret"), false);
+    assert.equal(JSON.stringify(patchedPublicConnection).includes("tenant-secret"), false);
+
+    const invalidPatchResponse = await api.request(`/connections/${stored.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ headerPatch: { Authorization: 42 } }),
+    });
+    assert.equal(invalidPatchResponse.status, 400);
+    assert.equal(
+      (await repo.getConnection(stored.id))?.headers.authorization,
+      "Bearer replaced-secret",
+    );
 
     const clearResponse = await api.request(`/connections/${stored.id}`, {
       method: "PATCH",

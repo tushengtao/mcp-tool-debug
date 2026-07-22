@@ -14,6 +14,8 @@ const stats = {
   sessionNotFoundResponses: 0,
   listToolsCalls: 0,
   toolCalls: 0,
+  activeToolCalls: 0,
+  maxConcurrentToolCalls: 0,
 };
 let expireOnceConsumed = false;
 
@@ -139,11 +141,20 @@ function createMcpServer() {
       };
     }
     if (name === "slow") {
-      await new Promise((resolve) => setTimeout(resolve, slowToolDelayMs));
-      return {
-        content: [{ type: "text", text: "slow response" }],
-        isError: false,
-      };
+      stats.activeToolCalls += 1;
+      stats.maxConcurrentToolCalls = Math.max(
+        stats.maxConcurrentToolCalls,
+        stats.activeToolCalls,
+      );
+      try {
+        await new Promise((resolve) => setTimeout(resolve, slowToolDelayMs));
+        return {
+          content: [{ type: "text", text: "slow response" }],
+          isError: false,
+        };
+      } finally {
+        stats.activeToolCalls -= 1;
+      }
     }
     throw new Error(`Unknown tool: ${name}`);
   });

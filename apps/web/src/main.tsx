@@ -1,25 +1,16 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { ConfigProvider } from "antd";
-import zhCN from "antd/locale/zh_CN";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
+import { UiProvider } from "./ui";
 import "./styles.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <ConfigProvider
-      locale={zhCN}
-      theme={{
-        token: {
-          colorPrimary: "#1677ff",
-          borderRadius: 8,
-        },
-      }}
-    >
+    <UiProvider>
       <BrowserRouter>
         <App />
       </BrowserRouter>
-    </ConfigProvider>
+    </UiProvider>
   </React.StrictMode>,
 );

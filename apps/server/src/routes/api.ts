@@ -5,6 +5,7 @@ import type {
   CreateTestCaseInput,
   ExportBundle,
   McpConnection,
+  StartSuiteRunRequest,
   SuiteRunRequest,
   UpdateConnectionInput,
   UpdateTestCaseInput,
@@ -12,13 +13,32 @@ import type {
 import { connectionManager } from "../mcp/connection-manager.js";
 import * as repo from "../db/repos.js";
 import type { StoredMcpConnection } from "../db/repos.js";
-import { invokeAndPersist, runCase, runSuite } from "../services/case-runner.js";
+import {
+  cancelSuiteRun,
+  getSuiteProgress,
+  invokeAndPersist,
+  runCase,
+  runSuite,
+  startSuiteRun,
+  SuiteConflictError,
+} from "../services/case-runner.js";
 import { dialect } from "../db/client.js";
 
 const app = new Hono();
 
 function bad(c: any, message: string, status = 400) {
   return c.json({ error: message }, status);
+}
+
+function isHeaderPatch(value: unknown): value is Record<string, string | null> {
+  return Boolean(value)
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Object.entries(value as Record<string, unknown>).every(
+      ([name, headerValue]) => name.length > 0
+        && name === name.trim()
+        && (typeof headerValue === "string" || headerValue === null),
+    );
 }
 
 function toPublicConnection(conn: StoredMcpConnection): McpConnection {
@@ -60,6 +80,12 @@ app.get("/connections/:id", async (c) => {
 app.patch("/connections/:id", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json()) as UpdateConnectionInput;
+  if (body.headers !== undefined && body.headerPatch !== undefined) {
+    return bad(c, "headers 与 headerPatch 不能同时提交");
+  }
+  if (body.headerPatch !== undefined && !isHeaderPatch(body.headerPatch)) {
+    return bad(c, "headerPatch 必须是值为字符串或 null 的对象");
+  }
   const updated = await repo.updateConnection(id, body);
   if (!updated) return bad(c, "连接不存在", 404);
   return c.json(
@@ -159,6 +185,10 @@ app.get("/connections/:id/cases", async (c) => {
   return c.json(cases);
 });
 
+app.get("/connections/:id/cases/overview", async (c) => {
+  return c.json(await repo.listCaseOverviews(c.req.param("id")));
+});
+
 app.patch("/cases/:id", async (c) => {
   const body = (await c.req.json()) as UpdateTestCaseInput;
   const updated = await repo.updateCase(c.req.param("id"), body);
@@ -186,7 +216,27 @@ app.post("/connections/:id/suites/run", async (c) => {
     const suite = await runSuite(c.req.param("id"), body);
     return c.json(suite);
   } catch (err) {
-    return bad(c, err instanceof Error ? err.message : String(err), 500);
+    return bad(c, err instanceof Error ? err.message : String(err), err instanceof SuiteConflictError ? 409 : 500);
+  }
+});
+
+const startSuiteSchema = z.object({
+  caseIds: z.array(z.string().min(1)).min(1),
+  parallel: z.number().int().min(1).max(8).optional(),
+  name: z.string().trim().min(1).max(160).optional(),
+});
+
+app.post("/connections/:id/suite-runs", async (c) => {
+  const parsed = startSuiteSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return bad(c, parsed.error.issues[0]?.message ?? "无效运行参数");
+  try {
+    const suite = await startSuiteRun(
+      c.req.param("id"),
+      parsed.data as StartSuiteRunRequest,
+    );
+    return c.json(suite, 202);
+  } catch (err) {
+    return bad(c, err instanceof Error ? err.message : String(err), err instanceof SuiteConflictError ? 409 : 400);
   }
 });
 
@@ -202,15 +252,30 @@ app.get("/suite-runs/:id", async (c) => {
   return c.json({ suite, runs });
 });
 
+app.get("/suite-runs/:id/progress", async (c) => {
+  const progress = await getSuiteProgress(c.req.param("id"));
+  if (!progress) return bad(c, "运行批次不存在", 404);
+  return c.json(progress);
+});
+
+app.post("/suite-runs/:id/cancel", async (c) => {
+  const suite = await cancelSuiteRun(c.req.param("id"));
+  if (!suite) return bad(c, "运行批次不存在", 404);
+  return c.json(suite);
+});
+
 app.get("/runs", async (c) => {
-  const runs = await repo.listRuns({
+  const filter = {
     connectionId: c.req.query("connectionId") ?? undefined,
     toolName: c.req.query("toolName") ?? undefined,
+    testCaseId: c.req.query("testCaseId") ?? undefined,
     suiteRunId: c.req.query("suiteRunId") ?? undefined,
     status: c.req.query("status") ?? undefined,
     limit: Number(c.req.query("limit") ?? 100),
-  });
-  return c.json(runs);
+  };
+  return c.json(c.req.query("summary") === "true"
+    ? await repo.listRunSummaries(filter)
+    : await repo.listRuns(filter));
 });
 
 app.get("/runs/:id", async (c) => {
@@ -269,8 +334,5 @@ app.post("/import", async (c) => {
   }
   return c.json({ connections, cases });
 });
-
-// silence unused zod import if tree-shaken later
-void z;
 
 export default app;

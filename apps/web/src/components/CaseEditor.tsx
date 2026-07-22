@@ -1,7 +1,8 @@
-import { Form, Input, InputNumber, Switch, Select } from "antd";
+import { Form, Input, InputNumber, Select, Switch } from "antd";
 import type { AssertConfig, TestCase } from "@mcp-debug/shared";
 import CodeMirror from "@uiw/react-codemirror";
 import { json } from "@codemirror/lang-json";
+import { useUi } from "../ui";
 
 export interface CaseFormValue {
   name: string;
@@ -12,156 +13,30 @@ export interface CaseFormValue {
   enabled: boolean;
 }
 
-export function caseToForm(tc?: Partial<TestCase> | null): CaseFormValue {
-  return {
-    name: tc?.name ?? "",
-    description: tc?.description ?? "",
-    arguments: tc?.arguments ?? {},
-    assert: tc?.assert ?? { expectIsError: false },
-    tags: tc?.tags ?? [],
-    enabled: tc?.enabled ?? true,
-  };
+export function caseToForm(testCase?: Partial<TestCase> | null): CaseFormValue {
+  return { name: testCase?.name ?? "", description: testCase?.description ?? "", arguments: testCase?.arguments ?? {}, assert: testCase?.assert ?? { expectIsError: false }, tags: testCase?.tags ?? [], enabled: testCase?.enabled ?? true };
 }
 
-interface Props {
-  value: CaseFormValue;
-  onChange: (v: CaseFormValue) => void;
-}
-
-export function CaseEditor({ value, onChange }: Props) {
-  const a = value.assert ?? {};
-  return (
-    <Form layout="vertical">
-      <Form.Item label="名称" required>
-        <Input
-          value={value.name}
-          onChange={(e) => onChange({ ...value, name: e.target.value })}
-        />
-      </Form.Item>
-      <Form.Item label="描述">
-        <Input.TextArea
-          rows={2}
-          value={value.description}
-          onChange={(e) => onChange({ ...value, description: e.target.value })}
-        />
-      </Form.Item>
-      <Form.Item label="Tags">
-        <Select
-          mode="tags"
-          value={value.tags}
-          onChange={(tags) => onChange({ ...value, tags })}
-          placeholder="输入后回车"
-        />
-      </Form.Item>
-      <Form.Item label="启用">
-        <Switch
-          checked={value.enabled}
-          onChange={(enabled) => onChange({ ...value, enabled })}
-        />
-      </Form.Item>
-      <Form.Item label="参数 arguments (JSON)">
-        <div className="json-editor">
-          <CodeMirror
-            value={JSON.stringify(value.arguments ?? {}, null, 2)}
-            height="180px"
-            extensions={[json()]}
-            onChange={(text) => {
-              try {
-                const parsed = JSON.parse(text || "{}");
-                onChange({ ...value, arguments: parsed });
-              } catch {
-                // keep typing
-              }
-            }}
-          />
-        </div>
-      </Form.Item>
-      <Form.Item label="expectIsError">
-        <Switch
-          checked={!!a.expectIsError}
-          onChange={(expectIsError) =>
-            onChange({ ...value, assert: { ...a, expectIsError } })
-          }
-        />
-      </Form.Item>
-      <Form.Item label="expectStructured">
-        <Switch
-          checked={!!a.expectStructured}
-          onChange={(expectStructured) =>
-            onChange({ ...value, assert: { ...a, expectStructured } })
-          }
-        />
-      </Form.Item>
-      <Form.Item label="structuredSchemaValid">
-        <Switch
-          checked={!!a.structuredSchemaValid}
-          onChange={(structuredSchemaValid) =>
-            onChange({ ...value, assert: { ...a, structuredSchemaValid } })
-          }
-        />
-      </Form.Item>
-      <Form.Item label="maxDurationMs">
-        <InputNumber
-          style={{ width: "100%" }}
-          value={a.maxDurationMs}
-          onChange={(maxDurationMs) =>
-            onChange({
-              ...value,
-              assert: {
-                ...a,
-                maxDurationMs: typeof maxDurationMs === "number" ? maxDurationMs : undefined,
-              },
-            })
-          }
-        />
-      </Form.Item>
-      <Form.Item label="contentTextContains (逗号分隔)">
-        <Input
-          value={(a.contentTextContains ?? []).join(",")}
-          onChange={(e) =>
-            onChange({
-              ...value,
-              assert: {
-                ...a,
-                contentTextContains: e.target.value
-                  .split(",")
-                  .map((s) => s.trim())
-                  .filter(Boolean),
-              },
-            })
-          }
-        />
-      </Form.Item>
-      <Form.Item label="structuredEquals (JSON 部分匹配)">
-        <div className="json-editor">
-          <CodeMirror
-            value={
-              a.structuredEquals === undefined
-                ? ""
-                : JSON.stringify(a.structuredEquals, null, 2)
-            }
-            height="140px"
-            extensions={[json()]}
-            onChange={(text) => {
-              if (!text.trim()) {
-                onChange({
-                  ...value,
-                  assert: { ...a, structuredEquals: undefined },
-                });
-                return;
-              }
-              try {
-                onChange({
-                  ...value,
-                  assert: { ...a, structuredEquals: JSON.parse(text) },
-                });
-              } catch {
-                // ignore
-              }
-            }}
-          />
-        </div>
-      </Form.Item>
-    </Form>
-  );
+export function CaseEditor({ value, onChange }: { value: CaseFormValue; onChange: (value: CaseFormValue) => void }) {
+  const { text, resolvedTheme } = useUi();
+  const assertions = value.assert ?? {};
+  const updateAssert = (patch: Partial<AssertConfig>) => onChange({ ...value, assert: { ...assertions, ...patch } });
+  const editorTheme = resolvedTheme === "dark" ? "dark" : "light";
+  return <Form layout="vertical" className="case-editor">
+    <div className="form-grid-2">
+      <Form.Item label={text("名称", "Name")} required><Input value={value.name} onChange={(event) => onChange({ ...value, name: event.target.value })} /></Form.Item>
+      <Form.Item label="Tags"><Select mode="tags" value={value.tags} onChange={(tags) => onChange({ ...value, tags })} placeholder={text("输入后回车", "Type and press Enter")} /></Form.Item>
+    </div>
+    <Form.Item label={text("描述", "Description")}><Input.TextArea rows={2} value={value.description} onChange={(event) => onChange({ ...value, description: event.target.value })} /></Form.Item>
+    <Form.Item label={text("启用", "Enabled")}><Switch checked={value.enabled} onChange={(enabled) => onChange({ ...value, enabled })} /></Form.Item>
+    <Form.Item label="arguments (JSON)"><div className="json-editor"><CodeMirror value={JSON.stringify(value.arguments ?? {}, null, 2)} height="180px" extensions={[json()]} theme={editorTheme} onChange={(source) => { try { onChange({ ...value, arguments: JSON.parse(source || "{}") }); } catch { /* keep editing */ } }} /></div></Form.Item>
+    <div className="assertion-grid">
+      <Form.Item label="expectIsError"><Switch checked={Boolean(assertions.expectIsError)} onChange={(expectIsError) => updateAssert({ expectIsError })} /></Form.Item>
+      <Form.Item label="expectStructured"><Switch checked={Boolean(assertions.expectStructured)} onChange={(expectStructured) => updateAssert({ expectStructured })} /></Form.Item>
+      <Form.Item label="structuredSchemaValid"><Switch checked={Boolean(assertions.structuredSchemaValid)} onChange={(structuredSchemaValid) => updateAssert({ structuredSchemaValid })} /></Form.Item>
+      <Form.Item label="maxDurationMs"><InputNumber style={{ width: "100%" }} value={assertions.maxDurationMs} onChange={(maxDurationMs) => updateAssert({ maxDurationMs: typeof maxDurationMs === "number" ? maxDurationMs : undefined })} /></Form.Item>
+    </div>
+    <Form.Item label={text("contentTextContains（逗号分隔）", "contentTextContains (comma separated)")}><Input value={(assertions.contentTextContains ?? []).join(",")} onChange={(event) => updateAssert({ contentTextContains: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) })} /></Form.Item>
+    <Form.Item label={text("structuredEquals（JSON 部分匹配）", "structuredEquals (partial JSON match)")}><div className="json-editor"><CodeMirror value={assertions.structuredEquals === undefined ? "" : JSON.stringify(assertions.structuredEquals, null, 2)} height="140px" extensions={[json()]} theme={editorTheme} onChange={(source) => { if (!source.trim()) updateAssert({ structuredEquals: undefined }); else try { updateAssert({ structuredEquals: JSON.parse(source) }); } catch { /* keep editing */ } }} /></div></Form.Item>
+  </Form>;
 }

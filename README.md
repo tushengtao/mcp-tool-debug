@@ -58,7 +58,7 @@
 
 ## 快速开始
 
-要求：**Node.js 20+**，推荐使用 **Node.js 22**。
+要求：**Node.js 20+**。本地开发无需与 Docker 镜像使用相同的 Node 主版本。
 
 ```bash
 git clone https://github.com/tushengtao/mcp-tool-debug.git
@@ -66,6 +66,10 @@ cd mcp-tool-debug
 npm install
 npm run dev
 ```
+
+`better-sqlite3` 包含原生二进制。切换 Node 主版本后，请在新版本下重新执行
+`npm install`，或运行 `npm run rebuild:native`；不要复用由另一 Node 主版本生成的
+`node_modules`。Docker 会在 `node:22-alpine` 镜像内独立安装依赖，不受本机版本影响。
 
 启动后访问：
 

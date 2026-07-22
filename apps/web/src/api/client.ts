@@ -3,12 +3,16 @@ import type {
   CreateTestCaseInput,
   ExportBundle,
   InvocationRun,
+  InvocationRunSummary,
   InvokeResponse,
   McpConnection,
   McpTool,
   SuiteRun,
+  SuiteRunProgress,
   SuiteRunRequest,
+  StartSuiteRunRequest,
   TestCase,
+  TestCaseOverview,
   UpdateConnectionInput,
   UpdateTestCaseInput,
 } from "@mcp-debug/shared";
@@ -29,7 +33,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => request<{ ok: boolean; dialect: string }>("/api/health"),
+  health: () => request<{ ok: boolean; dialect: string; liveConnections?: number }>("/api/health"),
   listConnections: () => request<McpConnection[]>("/api/connections"),
   createConnection: (body: CreateConnectionInput) =>
     request<McpConnection>("/api/connections", {
@@ -71,6 +75,8 @@ export const api = {
       `/api/connections/${id}/tools/${encodeURIComponent(toolName)}/cases`,
     ),
   listAllCases: (id: string) => request<TestCase[]>(`/api/connections/${id}/cases`),
+  listCaseOverviews: (id: string) =>
+    request<TestCaseOverview[]>(`/api/connections/${id}/cases/overview`),
   createCase: (id: string, toolName: string, body: CreateTestCaseInput) =>
     request<TestCase>(
       `/api/connections/${id}/tools/${encodeURIComponent(toolName)}/cases`,
@@ -90,6 +96,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  startSuiteRun: (id: string, body: StartSuiteRunRequest) =>
+    request<SuiteRun>(`/api/connections/${id}/suite-runs`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  getSuiteProgress: (id: string) =>
+    request<SuiteRunProgress>(`/api/suite-runs/${id}/progress`),
+  cancelSuiteRun: (id: string) =>
+    request<SuiteRun>(`/api/suite-runs/${id}/cancel`, { method: "POST" }),
   listSuiteRuns: (connectionId?: string) =>
     request<SuiteRun[]>(
       `/api/suite-runs${connectionId ? `?connectionId=${connectionId}` : ""}`,
@@ -99,6 +114,7 @@ export const api = {
   listRuns: (params: {
     connectionId?: string;
     toolName?: string;
+    testCaseId?: string;
     suiteRunId?: string;
     status?: string;
     limit?: number;
@@ -108,6 +124,20 @@ export const api = {
       if (v !== undefined && v !== "") q.set(k, String(v));
     });
     return request<InvocationRun[]>(`/api/runs?${q.toString()}`);
+  },
+  listRunSummaries: (params: {
+    connectionId?: string;
+    toolName?: string;
+    testCaseId?: string;
+    suiteRunId?: string;
+    status?: string;
+    limit?: number;
+  }) => {
+    const q = new URLSearchParams({ summary: "true" });
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== "") q.set(key, String(value));
+    });
+    return request<InvocationRunSummary[]>(`/api/runs?${q.toString()}`);
   },
   getRun: (id: string) => request<InvocationRun>(`/api/runs/${id}`),
   deleteRun: (id: string) =>

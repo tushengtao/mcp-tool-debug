@@ -9,7 +9,7 @@ export type RunStatus =
   | "timeout"
   | "cancelled";
 
-export type SuiteStatus = "running" | "passed" | "failed" | "cancelled";
+export type SuiteStatus = "running" | "cancelling" | "passed" | "failed" | "cancelled";
 
 export interface JsonPathEquals {
   path: string;
@@ -84,7 +84,10 @@ export interface UpdateConnectionInput {
   description?: string | null;
   transport?: TransportType;
   url?: string;
+  /** Replaces every configured header. Prefer headerPatch for redacted edit forms. */
   headers?: Record<string, string>;
+  /** Adds/replaces individual headers; null removes a header. Header names are matched case-insensitively. */
+  headerPatch?: Record<string, string | null>;
   timeoutMs?: number;
   enabled?: boolean;
 }
@@ -169,6 +172,28 @@ export interface InvocationRun {
   createdAt: string;
 }
 
+export interface InvocationRunSummary {
+  id: string;
+  connectionId: string;
+  toolName: string;
+  testCaseId?: string | null;
+  suiteRunId?: string | null;
+  source: RunSource;
+  startedAt: string;
+  endedAt: string;
+  durationMs: number;
+  status: RunStatus;
+  isError: boolean;
+  passed: boolean;
+  assertPassed?: boolean | null;
+  schemaValid?: boolean | null;
+  hasProtocolError: boolean;
+}
+
+export interface TestCaseOverview extends TestCase {
+  lastRun?: InvocationRunSummary | null;
+}
+
 export interface SuiteRun {
   id: string;
   connectionId?: string | null;
@@ -183,6 +208,11 @@ export interface SuiteRun {
   skipped: number;
   status: SuiteStatus;
   createdAt: string;
+}
+
+export interface SuiteRunProgress {
+  suite: SuiteRun;
+  runs: InvocationRunSummary[];
 }
 
 export interface InvokeRequest {
@@ -209,6 +239,12 @@ export interface SuiteRunRequest {
   toolNames?: string[];
   caseIds?: string[];
   tags?: string[];
+  parallel?: number;
+  name?: string;
+}
+
+export interface StartSuiteRunRequest {
+  caseIds: string[];
   parallel?: number;
   name?: string;
 }

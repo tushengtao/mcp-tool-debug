@@ -33,6 +33,7 @@
     "build:server": "npm run build:shared && npm run build --workspace=apps/server",
     "build:web": "npm run build --workspace=apps/web",
     "test:server": "tsx --test scripts/session-recovery.test.ts",
+    "rebuild:native": "npm rebuild better-sqlite3",
     "dev": "concurrently --kill-others-on-fail --names server,web --prefix-colors blue,green \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "npm run build:shared && npm run dev --workspace=apps/server",
     "dev:web": "npm run dev --workspace=apps/web",

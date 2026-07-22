@@ -36,6 +36,11 @@ export interface CallToolResult {
   rawResponse?: unknown;
 }
 
+export interface ExecutionWorker {
+  callTool(toolName: string, args: Record<string, unknown>): Promise<CallToolResult>;
+  close(): Promise<void>;
+}
+
 class ConnectionManager {
   private sessions = new Map<string, LiveSession>();
   private queues = new Map<string, Promise<unknown>>();
@@ -98,6 +103,43 @@ class ConnectionManager {
     };
   }
 
+  private transportOrder(conn: StoredMcpConnection): Array<"streamable_http" | "sse"> {
+    return conn.transport === "streamable_http"
+      ? ["streamable_http"]
+      : conn.transport === "sse"
+        ? ["sse"]
+        : ["streamable_http", "sse"];
+  }
+
+  private async connectStoredConnection(conn: StoredMcpConnection): Promise<LiveSession> {
+    let lastError: unknown;
+    for (const kind of this.transportOrder(conn)) {
+      try {
+        return await this.connectWithTransport(conn, kind);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError instanceof Error
+      ? lastError
+      : new Error(String(lastError ?? "connect failed"));
+  }
+
+  private async closeSession(session: LiveSession, terminate = true): Promise<void> {
+    try {
+      if (
+        terminate &&
+        session.transport &&
+        typeof (session.transport as any).terminateSession === "function"
+      ) {
+        await (session.transport as any).terminateSession().catch(() => undefined);
+      }
+      await session.client.close();
+    } catch {
+      // ignore cleanup failures
+    }
+  }
+
   async connect(id: string): Promise<StoredMcpConnection> {
     const conn = await repo.getConnection(id);
     if (!conn) throw new Error("连接不存在");
@@ -105,12 +147,7 @@ class ConnectionManager {
       await this.disconnect(id);
     }
 
-    const tryOrder: Array<"streamable_http" | "sse"> =
-      conn.transport === "streamable_http"
-        ? ["streamable_http"]
-        : conn.transport === "sse"
-          ? ["sse"]
-          : ["streamable_http", "sse"];
+    const tryOrder = this.transportOrder(conn);
 
     let lastErr: unknown;
     for (const kind of tryOrder) {
@@ -150,17 +187,7 @@ class ConnectionManager {
     const session = this.sessions.get(id);
     if (!session) return;
     this.sessions.delete(id);
-    try {
-      if (
-        session.transport &&
-        typeof (session.transport as any).terminateSession === "function"
-      ) {
-        await (session.transport as any).terminateSession().catch(() => undefined);
-      }
-      await session.client.close();
-    } catch {
-      // ignore
-    }
+    await this.closeSession(session);
   }
 
   async ensureConnected(id: string): Promise<LiveSession> {
@@ -297,6 +324,129 @@ class ConnectionManager {
     });
   }
 
+  private async executeToolCall(
+    tool: Awaited<ReturnType<typeof repo.getTool>>,
+    timeoutMs: number,
+    operation: () => Promise<any>,
+  ): Promise<CallToolResult> {
+    const startedAtMs = Date.now();
+    const startedAt = new Date(startedAtMs).toISOString();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        controller.signal.addEventListener("abort", () => {
+          reject(Object.assign(new Error("Tool call timed out"), { code: "TIMEOUT" }));
+        });
+      });
+      const result = await Promise.race([operation(), timeoutPromise]);
+      const endedAtMs = Date.now();
+      const content = (Array.isArray((result as any).content)
+        ? (result as any).content
+        : []) as ContentItem[];
+      const structuredContent = (result as any).structuredContent;
+      const isError = Boolean((result as any).isError);
+      const schemaValidation = validateAgainstSchema(
+        tool?.outputSchema as Record<string, unknown> | null | undefined,
+        structuredContent,
+      );
+      return {
+        startedAt,
+        endedAt: new Date(endedAtMs).toISOString(),
+        durationMs: endedAtMs - startedAtMs,
+        status: isError ? "tool_error" : "success",
+        isError,
+        content,
+        structuredContent,
+        schemaValidation,
+        protocolError: null,
+        rawResponse: result,
+      };
+    } catch (err: any) {
+      const endedAtMs = Date.now();
+      const isTimeout =
+        err?.code === "TIMEOUT" ||
+        err?.name === "AbortError" ||
+        /timed out/i.test(String(err?.message ?? ""));
+      return {
+        startedAt,
+        endedAt: new Date(endedAtMs).toISOString(),
+        durationMs: endedAtMs - startedAtMs,
+        status: isTimeout ? "timeout" : "protocol_error",
+        isError: true,
+        content: [],
+        protocolError: {
+          message: err instanceof Error ? err.message : String(err),
+          code: err?.code,
+        },
+        schemaValidation: null,
+        rawResponse: null,
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async createExecutionWorker(connectionId: string): Promise<ExecutionWorker> {
+    const conn = await repo.getConnection(connectionId);
+    if (!conn) throw new Error("连接不存在");
+    let session: LiveSession | null = null;
+    let closed = false;
+
+    const invoke = async (toolName: string, args: Record<string, unknown>) => {
+      if (closed) throw new Error("Execution worker is closed");
+      if (!session) session = await this.connectStoredConnection(conn);
+      const current = session;
+      try {
+        return await current.client.callTool({ name: toolName, arguments: args });
+      } catch (error) {
+        if (!this.isExpiredStreamableSession(current, error)) throw error;
+        console.warn(JSON.stringify({
+          event: "mcp_worker_session_recovery_started",
+          connectionId,
+          reason: "http_404",
+        }));
+        await this.closeSession(current, false);
+        session = await this.connectStoredConnection(conn);
+        try {
+          const result = await session.client.callTool({ name: toolName, arguments: args });
+          console.info(JSON.stringify({
+            event: "mcp_worker_session_recovery_succeeded",
+            connectionId,
+          }));
+          return result;
+        } catch (retryError) {
+          if (session && this.isExpiredStreamableSession(session, retryError)) {
+            await this.closeSession(session, false);
+            session = null;
+          }
+          console.warn(JSON.stringify({
+            event: "mcp_worker_session_recovery_failed",
+            connectionId,
+          }));
+          throw retryError;
+        }
+      }
+    };
+
+    return {
+      callTool: async (toolName, args) => {
+        const tool = await repo.getTool(connectionId, toolName);
+        return this.executeToolCall(
+          tool,
+          conn.timeoutMs ?? 60000,
+          () => invoke(toolName, args),
+        );
+      },
+      close: async () => {
+        closed = true;
+        if (session) await this.closeSession(session);
+        session = null;
+      },
+    };
+  }
+
   async callTool(
     connectionId: string,
     toolName: string,
@@ -308,73 +458,12 @@ class ConnectionManager {
       if (!conn) throw new Error("连接不存在");
       const timeoutMs = options?.timeoutMs ?? conn.timeoutMs ?? 60000;
       const tool = await repo.getTool(connectionId, toolName);
-
-      const startedAtMs = Date.now();
-      const startedAt = new Date(startedAtMs).toISOString();
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-      try {
-        // SDK callTool may not accept abort; race with timeout promise
-        const resultPromise = this.withSessionRecovery(
-          connectionId,
-          (session) =>
-            session.client.callTool({
-              name: toolName,
-              arguments: args,
-            }),
-        );
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          controller.signal.addEventListener("abort", () => {
-            reject(Object.assign(new Error("Tool call timed out"), { code: "TIMEOUT" }));
-          });
-        });
-        const result = await Promise.race([resultPromise, timeoutPromise]);
-        const endedAtMs = Date.now();
-        const content = (Array.isArray((result as any).content)
-          ? (result as any).content
-          : []) as ContentItem[];
-        const structuredContent = (result as any).structuredContent;
-        const isError = Boolean((result as any).isError);
-        const schemaValidation = validateAgainstSchema(
-          tool?.outputSchema as Record<string, unknown> | null | undefined,
-          structuredContent,
-        );
-        return {
-          startedAt,
-          endedAt: new Date(endedAtMs).toISOString(),
-          durationMs: endedAtMs - startedAtMs,
-          status: isError ? "tool_error" : "success",
-          isError,
-          content,
-          structuredContent,
-          schemaValidation,
-          protocolError: null,
-          rawResponse: result,
-        };
-      } catch (err: any) {
-        const endedAtMs = Date.now();
-        const isTimeout =
-          err?.code === "TIMEOUT" ||
-          err?.name === "AbortError" ||
-          /timed out/i.test(String(err?.message ?? ""));
-        return {
-          startedAt,
-          endedAt: new Date(endedAtMs).toISOString(),
-          durationMs: endedAtMs - startedAtMs,
-          status: isTimeout ? "timeout" : "protocol_error",
-          isError: true,
-          content: [],
-          protocolError: {
-            message: err instanceof Error ? err.message : String(err),
-            code: err?.code,
-          },
-          schemaValidation: null,
-          rawResponse: null,
-        };
-      } finally {
-        clearTimeout(timer);
-      }
+      return this.executeToolCall(
+        tool,
+        timeoutMs,
+        () => this.withSessionRecovery(connectionId, (session) =>
+          session.client.callTool({ name: toolName, arguments: args })),
+      );
     });
   }
 }

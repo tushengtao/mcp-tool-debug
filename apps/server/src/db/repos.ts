@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 import type {
   AssertConfig,
   AssertResult,
@@ -6,6 +6,7 @@ import type {
   CreateConnectionInput,
   CreateTestCaseInput,
   InvocationRun,
+  InvocationRunSummary,
   McpConnection,
   McpTool,
   RunSource,
@@ -14,6 +15,7 @@ import type {
   SuiteRun,
   SuiteStatus,
   TestCase,
+  TestCaseOverview,
   TransportType,
   UpdateConnectionInput,
   UpdateTestCaseInput,
@@ -208,6 +210,29 @@ function mapSuite(row: {
   };
 }
 
+function summarizeRun(run: InvocationRun): InvocationRunSummary {
+  const assertPassed = run.assertResult?.passed ?? null;
+  return {
+    id: run.id,
+    connectionId: run.connectionId,
+    toolName: run.toolName,
+    testCaseId: run.testCaseId,
+    suiteRunId: run.suiteRunId,
+    source: run.source,
+    startedAt: run.startedAt,
+    endedAt: run.endedAt,
+    durationMs: run.durationMs,
+    status: run.status,
+    isError: run.isError,
+    passed: assertPassed == null
+      ? run.status === "success" && !run.isError
+      : assertPassed,
+    assertPassed,
+    schemaValid: run.schemaValidation?.ok ?? null,
+    hasProtocolError: Boolean(run.protocolError),
+  };
+}
+
 export async function listConnections(
   liveIds: Set<string>,
 ): Promise<StoredMcpConnection[]> {
@@ -272,6 +297,17 @@ export async function updateConnection(
   if (input.transport !== undefined) patch.transport = input.transport;
   if (input.url !== undefined) patch.url = input.url;
   if (input.headers !== undefined) patch.headersJson = jsonStringify(input.headers);
+  else if (input.headerPatch !== undefined) {
+    const headers = { ...existing.headers };
+    for (const [name, value] of Object.entries(input.headerPatch)) {
+      const configuredName = Object.keys(headers).find(
+        (item) => item.toLocaleLowerCase() === name.toLocaleLowerCase(),
+      );
+      if (configuredName) delete headers[configuredName];
+      if (value !== null) headers[name] = value;
+    }
+    patch.headersJson = jsonStringify(headers);
+  }
   if (input.timeoutMs !== undefined) patch.timeoutMs = input.timeoutMs;
   if (input.enabled !== undefined) patch.enabled = input.enabled;
   await db.update(t.mcpConnections).set(patch).where(eq(t.mcpConnections.id, id));
@@ -530,6 +566,7 @@ export async function createRun(input: {
 export async function listRuns(filter: {
   connectionId?: string;
   toolName?: string;
+  testCaseId?: string;
   suiteRunId?: string;
   status?: string;
   limit?: number;
@@ -539,6 +576,7 @@ export async function listRuns(filter: {
   const conds = [];
   if (filter.connectionId) conds.push(eq(t.invocationRuns.connectionId, filter.connectionId));
   if (filter.toolName) conds.push(eq(t.invocationRuns.toolName, filter.toolName));
+  if (filter.testCaseId) conds.push(eq(t.invocationRuns.testCaseId, filter.testCaseId));
   if (filter.suiteRunId) conds.push(eq(t.invocationRuns.suiteRunId, filter.suiteRunId));
   if (filter.status) conds.push(eq(t.invocationRuns.status, filter.status));
   const q = db.select().from(t.invocationRuns);
@@ -549,6 +587,35 @@ export async function listRuns(filter: {
         .limit(filter.limit ?? 100)
     : await q.orderBy(desc(t.invocationRuns.startedAt)).limit(filter.limit ?? 100);
   return rows.map(mapRun);
+}
+
+export async function listRunSummaries(filter: {
+  connectionId?: string;
+  toolName?: string;
+  testCaseId?: string;
+  suiteRunId?: string;
+  status?: string;
+  limit?: number;
+}): Promise<InvocationRunSummary[]> {
+  return (await listRuns(filter)).map(summarizeRun);
+}
+
+export async function listCaseOverviews(connectionId: string): Promise<TestCaseOverview[]> {
+  const cases = await listCases(connectionId);
+  const t = tables();
+  const db = getDb() as any;
+  const rows = await db
+    .select()
+    .from(t.invocationRuns)
+    .where(eq(t.invocationRuns.connectionId, connectionId))
+    .orderBy(desc(t.invocationRuns.startedAt));
+  const latest = new Map<string, InvocationRunSummary>();
+  for (const row of rows) {
+    if (row.testCaseId && !latest.has(row.testCaseId)) {
+      latest.set(row.testCaseId, summarizeRun(mapRun(row)));
+    }
+  }
+  return cases.map((item) => ({ ...item, lastRun: latest.get(item.id) ?? null }));
 }
 
 export async function getRun(id: string): Promise<InvocationRun | null> {
@@ -635,6 +702,40 @@ export async function listSuiteRuns(connectionId?: string): Promise<SuiteRun[]> 
         .limit(50)
     : await db.select().from(t.suiteRuns).orderBy(desc(t.suiteRuns.createdAt)).limit(50);
   return rows.map(mapSuite);
+}
+
+export async function getActiveSuiteRun(connectionId: string): Promise<SuiteRun | null> {
+  const t = tables();
+  const db = getDb() as any;
+  const rows = await db
+    .select()
+    .from(t.suiteRuns)
+    .where(and(
+      eq(t.suiteRuns.connectionId, connectionId),
+      or(eq(t.suiteRuns.status, "running"), eq(t.suiteRuns.status, "cancelling")),
+    ))
+    .orderBy(desc(t.suiteRuns.createdAt))
+    .limit(1);
+  return rows[0] ? mapSuite(rows[0]) : null;
+}
+
+export async function reconcileInterruptedSuiteRuns(): Promise<number> {
+  const t = tables();
+  const db = getDb() as any;
+  const rows = await db
+    .select()
+    .from(t.suiteRuns)
+    .where(or(eq(t.suiteRuns.status, "running"), eq(t.suiteRuns.status, "cancelling")));
+  const endedAt = nowIso();
+  for (const row of rows) {
+    await db.update(t.suiteRuns).set({
+      endedAt,
+      durationMs: Math.max(0, Date.parse(endedAt) - Date.parse(row.startedAt)),
+      skipped: Math.max(row.skipped, row.total - row.passed - row.failed),
+      status: "cancelled",
+    }).where(eq(t.suiteRuns.id, row.id));
+  }
+  return rows.length;
 }
 
 export async function listCasesByFilter(filter: {

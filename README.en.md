@@ -50,7 +50,8 @@ The hard part of developing or integrating an MCP Server is rarely sending one J
 
 ## Quick start
 
-Requirements: **Node.js 20+**; **Node.js 22** is recommended.
+Requirement: **Node.js 20+**. Local development does not need to use the same
+Node major version as the Docker image.
 
 ```bash
 git clone https://github.com/tushengtao/mcp-tool-debug.git
@@ -58,6 +59,12 @@ cd mcp-tool-debug
 npm install
 npm run dev
 ```
+
+`better-sqlite3` includes a native binary. After switching Node major versions,
+run `npm install` again under the new version, or run
+`npm run rebuild:native`. Do not reuse `node_modules` produced by a different
+Node major version. Docker installs its own dependencies inside `node:22-alpine`
+and is unaffected by the host Node version.
 
 Open:
 
