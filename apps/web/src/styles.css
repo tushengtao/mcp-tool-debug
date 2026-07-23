@@ -77,6 +77,8 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px s
 .command-brand { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; color: var(--text-2); }
 .command-brand strong { color: var(--text); }
 .command-actions { display: flex; align-items: center; gap: 8px; }
+.github-link-icon { display: block; width: 18px; height: 18px; object-fit: contain; }
+:root[data-theme="dark"] .github-link-icon { filter: invert(1); }
 .form-commandbar kbd { padding: 1px 5px; color: var(--text-3); background: var(--bg-surface); border: 1px solid var(--border); border-radius: 4px; font-size: 11px; font-weight: 400; }
 .app-content { min-height: calc(100vh - var(--command-height) - var(--status-height)); padding: 24px 28px 36px; }
 .app-content.is-workbench { height: calc(100vh - var(--command-height) - var(--status-height)); padding: 12px; overflow: hidden; }

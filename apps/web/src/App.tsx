@@ -16,6 +16,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { WorkbenchPage } from "./pages/WorkbenchPage";
 import { useUi, type ThemeMode } from "./ui";
 import appLogo from "./assets/app-logo.png";
+import githubIcon from "./assets/github_icon.png";
 
 const themeIcons = { light: <SunOutlined />, dark: <MoonOutlined />, system: <BulbOutlined /> };
 
@@ -37,6 +38,16 @@ export default function App() {
       <header className="app-command-bar">
         <div className="command-brand"><span>MCP Tool</span><strong>{text("调试台", "Debugger")}</strong></div>
         <div className="command-actions">
+          <Tooltip title="tushengtao/mcp-tool-debug">
+            <Button
+              className="github-link"
+              href="https://github.com/tushengtao/mcp-tool-debug"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={text("在 GitHub 查看项目", "View project on GitHub")}
+              icon={<img className="github-link-icon" src={githubIcon} alt="" />}
+            />
+          </Tooltip>
           <Tooltip title={text("切换语言", "Switch language")}><Button className="locale-toggle" icon={<GlobalOutlined />} onClick={() => setLocale(locale === "zh-CN" ? "en-US" : "zh-CN")}>{locale === "zh-CN" ? "中" : "EN"}</Button></Tooltip>
           <Dropdown trigger={["click"]} menu={{ selectedKeys: [themeMode], onClick: ({ key }) => setThemeMode(key as ThemeMode), items: [
             { key: "light", icon: <SunOutlined />, label: text("亮色", "Light") },
